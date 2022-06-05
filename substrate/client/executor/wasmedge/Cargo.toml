@@ -1,0 +1,31 @@
+[package]
+name = "sc-executor-wasmedge"
+version = "0.1.0"
+authors = ["EmisonLu <lzh1633856298@gmail.com>"]
+edition = "2021"
+license = "GPL-3.0-or-later WITH Classpath-exception-2.0"
+homepage = "https://substrate.io"
+repository = "https://github.com/paritytech/substrate/"
+description = "Defines a `WasmRuntime` that uses the Wasmedge to execute."
+readme = "README.md"
+
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]
+
+[dependencies]
+libc = "0.2.121"
+cfg-if = "1.0"
+log = "0.4.16"
+parity-wasm = "0.42.0"
+codec = { package = "parity-scale-codec", version = "3.0.0" }
+sc-executor-common = { version = "0.10.0-dev", path = "../common" }
+sp-wasm-interface = { version = "6.0.0", path = "../../../primitives/wasm-interface" }
+sp-runtime-interface = { version = "6.0.0", path = "../../../primitives/runtime-interface" }
+sc-allocator = { version = "4.1.0-dev", path = "../../allocator" }
+sp-sandbox = { version = "0.10.0-dev", path = "../../../primitives/sandbox" }
+
+wasmedge-sys = "0.7.0"
+wasmedge-types = "0.1.3"
+
+[dev-dependencies]
+wat = "1.0"
