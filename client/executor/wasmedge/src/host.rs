@@ -17,7 +17,6 @@
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 use log::trace;
-use wasmedge_sys::Vm;
 
 use codec::{Decode, Encode};
 use sc_allocator::FreeingBumpHeapAllocator;
@@ -250,14 +249,17 @@ impl Sandbox for HostContext {
 				.instance_wrapper
 				.instance()
 				.get_table("__indirect_function_table")
-				.ok_or("Runtime doesn't have a table; sandbox is unavailable")?;;
+				.map_err(|_| {
+					"Runtime doesn't have a table; sandbox is unavailable"
+				})?;
 
 			table
 				.get_data(dispatch_thunk_id)
-				.map_err(|error| WasmError::Other(format!("failed to get the data: {}", error,)))
-				.unwrap()
+				.map_err(|_| {
+					"dispatch_thunk_id is out of bounds"
+				})?
 				.func_ref()
-				.unwrap()
+				.ok_or("dispatch_thunk_idx should be a funcref")?
 		};
 
 		let dispatch_thunk = Arc::new(dispatch_thunk);

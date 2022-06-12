@@ -26,7 +26,6 @@ sp-sandbox = { version = "0.10.0-dev", path = "../../../primitives/sandbox" }
 
 wasmedge-sys = "0.7.0"
 wasmedge-types = "0.1.3"
-# wasmedge-sys = { path = "/root/WasmEdge/bindings/rust/wasmedge-sys" }
 
 [dev-dependencies]
 wat = "1.0"

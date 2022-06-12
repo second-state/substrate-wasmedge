@@ -307,8 +307,6 @@ impl InstanceWrapper {
 					let ptr = self.base_ptr();
 					let len = (self.memory.size() * 64 * 1024) as usize;
 
-					// Linux handles MADV_DONTNEED reliably. The result is that the given area
-					// is unmapped and will be zeroed on the next pagefault.
 					if libc::madvise(ptr as _, len, libc::MADV_DONTNEED) != 0 {
 						static LOGGED: Once = Once::new();
 						LOGGED.call_once(|| {
@@ -328,7 +326,6 @@ impl InstanceWrapper {
 					let ptr = self.base_ptr();
 					let len = (self.memory.size() * 64 * 1024) as usize;
 
-					// On MacOS we can simply overwrite memory mapping.
 					if libc::mmap(
 						ptr as _,
 						len,
