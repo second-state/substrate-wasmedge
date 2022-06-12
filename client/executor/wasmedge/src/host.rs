@@ -41,7 +41,7 @@ unsafe impl Send for SandboxStore {}
 
 pub struct HostState {
 	sandbox_store: SandboxStore,
-	allocator: FreeingBumpHeapAllocator,
+	allocator: Box<FreeingBumpHeapAllocator>,
 	panic_message: Option<String>,
 }
 
@@ -51,7 +51,7 @@ impl HostState {
 			sandbox_store: SandboxStore(Some(Box::new(sandbox::Store::new(
 				sandbox::SandboxBackend::TryWasmer,
 			)))),
-			allocator,
+			allocator: Box::new(allocator),
 			panic_message: None,
 		}
 	}
@@ -59,10 +59,44 @@ impl HostState {
 	pub fn take_panic_message(&mut self) -> Option<String> {
 		self.panic_message.take()
 	}
+
+	pub fn allocator(&mut self) -> &mut FreeingBumpHeapAllocator {
+		self.allocator.as_mut()
+	}
 }
 
 pub(crate) struct HostContext {
 	instance_wrapper: InstanceWrapper,
+}
+
+impl HostContext {
+	fn host_state(&self) -> &HostState {
+		self.instance_wrapper
+			.host_state()
+			.expect("host state is not empty when calling a function in wasm; qed")
+	}
+
+	fn host_state_mut(&mut self) -> &mut HostState {
+		self.instance_wrapper
+			.host_state_mut()
+			.expect("host state is not empty when calling a function in wasm; qed")
+	}
+
+	fn sandbox_store(&self) -> &sandbox::Store<Arc<wasmedge_sys::FuncRef>> {
+		self.host_state()
+			.sandbox_store
+			.0
+			.as_ref()
+			.expect("sandbox store is only empty when temporarily borrowed")
+	}
+
+	fn sandbox_store_mut(&mut self) -> &mut sandbox::Store<Arc<wasmedge_sys::FuncRef>> {
+		self.host_state_mut()
+			.sandbox_store
+			.0
+			.as_mut()
+			.expect("sandbox store is only empty when temporarily borrowed")
+	}
 }
 
 impl sp_wasm_interface::FunctionContext for HostContext {
@@ -81,27 +115,11 @@ impl sp_wasm_interface::FunctionContext for HostContext {
 	}
 
 	fn allocate_memory(&mut self, size: WordSize) -> sp_wasm_interface::Result<Pointer<u8>> {
-		self.instance_wrapper
-			.host_state()
-			.lock()
-			.expect("failed to lock; qed")
-			.as_mut()
-			.expect("host state is not empty when calling a function in wasm; qed")
-			.allocator
-			.allocate(self.instance_wrapper.memory_slice_mut(), size)
-			.map_err(|e| e.to_string())
+		self.instance_wrapper.allocate_memory(size)
 	}
 
 	fn deallocate_memory(&mut self, ptr: Pointer<u8>) -> sp_wasm_interface::Result<()> {
-		self.instance_wrapper
-			.host_state()
-			.lock()
-			.expect("failed to lock; qed")
-			.as_mut()
-			.expect("host state is not empty when calling a function in wasm; qed")
-			.allocator
-			.deallocate(self.instance_wrapper.memory_slice_mut(), ptr)
-			.map_err(|e| e.to_string())
+		self.instance_wrapper.deallocate_memory(ptr)
 	}
 
 	fn sandbox(&mut self) -> &mut dyn Sandbox {
@@ -109,13 +127,7 @@ impl sp_wasm_interface::FunctionContext for HostContext {
 	}
 
 	fn register_panic_error_message(&mut self, message: &str) {
-		self.instance_wrapper
-			.host_state()
-			.lock()
-			.expect("failed to lock; qed")
-			.as_mut()
-			.expect("host state is not empty when calling a function in wasm; qed")
-			.panic_message = Some(message.to_owned());
+		self.host_state_mut().panic_message = Some(message.to_owned());
 	}
 }
 
@@ -127,19 +139,7 @@ impl Sandbox for HostContext {
 		buf_ptr: Pointer<u8>,
 		buf_len: WordSize,
 	) -> sp_wasm_interface::Result<u32> {
-		let sandboxed_memory = self
-			.instance_wrapper
-			.host_state()
-			.lock()
-			.expect("failed to lock; qed")
-			.as_ref()
-			.expect("host state is not empty when calling a function in wasm; qed")
-			.sandbox_store
-			.0
-			.as_ref()
-			.expect("sandbox store is only empty when temporarily borrowed")
-			.memory(memory_id)
-			.map_err(|e| e.to_string())?;
+		let sandboxed_memory = self.sandbox_store().memory(memory_id).map_err(|e| e.to_string())?;
 
 		let len = buf_len as usize + offset as usize;
 
@@ -164,19 +164,7 @@ impl Sandbox for HostContext {
 		val_ptr: Pointer<u8>,
 		val_len: WordSize,
 	) -> sp_wasm_interface::Result<u32> {
-		let sandboxed_memory = self
-			.instance_wrapper
-			.host_state()
-			.lock()
-			.expect("failed to lock; qed")
-			.as_ref()
-			.expect("host state is not empty when calling a function in wasm; qed")
-			.sandbox_store
-			.0
-			.as_ref()
-			.expect("sandbox store is only empty when temporarily borrowed")
-			.memory(memory_id)
-			.map_err(|e| e.to_string())?;
+		let sandboxed_memory = self.sandbox_store().memory(memory_id).map_err(|e| e.to_string())?;
 
 		let len = val_len as usize;
 
@@ -193,33 +181,11 @@ impl Sandbox for HostContext {
 	}
 
 	fn memory_teardown(&mut self, memory_id: MemoryId) -> sp_wasm_interface::Result<()> {
-		self.instance_wrapper
-			.host_state()
-			.lock()
-			.expect("failed to lock; qed")
-			.as_mut()
-			.expect("host state is not empty when calling a function in wasm; qed")
-			.sandbox_store
-			.0
-			.as_mut()
-			.expect("sandbox store is only empty when temporarily borrowed")
-			.memory_teardown(memory_id)
-			.map_err(|e| e.to_string())
+		self.sandbox_store_mut().memory_teardown(memory_id).map_err(|e| e.to_string())
 	}
 
 	fn memory_new(&mut self, initial: u32, maximum: u32) -> sp_wasm_interface::Result<u32> {
-		self.instance_wrapper
-			.host_state()
-			.lock()
-			.expect("failed to lock; qed")
-			.as_mut()
-			.expect("host state is not empty when calling a function in wasm; qed")
-			.sandbox_store
-			.0
-			.as_mut()
-			.expect("sandbox store is only empty when temporarily borrowed")
-			.new_memory(initial, maximum)
-			.map_err(|e| e.to_string())
+		self.sandbox_store_mut().new_memory(initial, maximum).map_err(|e| e.to_string())
 	}
 
 	fn invoke(
@@ -238,33 +204,10 @@ impl Sandbox for HostContext {
 			.into_iter()
 			.collect::<Vec<_>>();
 
-		let instance = self
-			.instance_wrapper
-			.host_state()
-			.lock()
-			.expect("failed to lock; qed")
-			.as_ref()
-			.expect("host state is not empty when calling a function in wasm; qed")
-			.sandbox_store
-			.0
-			.as_ref()
-			.expect("sandbox store is only empty when temporarily borrowed")
-			.instance(instance_id)
-			.map_err(|e| e.to_string())?;
+		let instance = self.sandbox_store().instance(instance_id).map_err(|e| e.to_string())?;
 
-		let dispatch_thunk = self
-			.instance_wrapper
-			.host_state()
-			.lock()
-			.expect("failed to lock; qed")
-			.as_ref()
-			.expect("host state is not empty when calling a function in wasm; qed")
-			.sandbox_store
-			.0
-			.as_ref()
-			.expect("sandbox store is only empty when temporarily borrowed")
-			.dispatch_thunk(instance_id)
-			.map_err(|e| e.to_string())?;
+		let dispatch_thunk =
+			self.sandbox_store().dispatch_thunk(instance_id).map_err(|e| e.to_string())?;
 
 		let result = instance.invoke(
 			export_name,
@@ -290,16 +233,7 @@ impl Sandbox for HostContext {
 	}
 
 	fn instance_teardown(&mut self, instance_id: u32) -> sp_wasm_interface::Result<()> {
-		self.instance_wrapper
-			.host_state()
-			.lock()
-			.expect("failed to lock; qed")
-			.as_mut()
-			.expect("host state is not empty when calling a function in wasm; qed")
-			.sandbox_store
-			.0
-			.as_mut()
-			.expect("sandbox store is only empty when temporarily borrowed")
+		self.sandbox_store_mut()
 			.instance_teardown(instance_id)
 			.map_err(|e| e.to_string())
 	}
@@ -316,47 +250,25 @@ impl Sandbox for HostContext {
 				.instance_wrapper
 				.instance()
 				.get_table("__indirect_function_table")
-				.map_err(|error| {
-					WasmError::Other(format!(
-						"table named '__indirect_function_table' is not found: {}",
-						error,
-					))
-				})
-				.unwrap();
+				.ok_or("Runtime doesn't have a table; sandbox is unavailable")?;;
 
 			table
 				.get_data(dispatch_thunk_id)
 				.map_err(|error| WasmError::Other(format!("failed to get the data: {}", error,)))
 				.unwrap()
 				.func_ref()
+				.unwrap()
 		};
 
-		let dispatch_thunk = Arc::new(dispatch_thunk.unwrap());
+		let dispatch_thunk = Arc::new(dispatch_thunk);
 
-		let guest_env = match sandbox::GuestEnvironment::decode(
-			self.instance_wrapper
-				.host_state()
-				.lock()
-				.expect("failed to lock; qed")
-				.as_mut()
-				.expect("host state is not empty when calling a function in wasm; qed")
-				.sandbox_store
-				.0
-				.as_ref()
-				.expect("sandbox store is only empty when temporarily borrowed"),
-			raw_env_def,
-		) {
+		let guest_env = match sandbox::GuestEnvironment::decode(self.sandbox_store(), raw_env_def) {
 			Ok(guest_env) => guest_env,
 			Err(_) => return Ok(sandbox_env::ERR_MODULE as u32),
 		};
 
 		let mut store = self
-			.instance_wrapper
-			.host_state()
-			.lock()
-			.expect("failed to lock; qed")
-			.as_mut()
-			.expect("host state is not empty when calling a function in wasm; qed")
+			.host_state_mut()
 			.sandbox_store
 			.0
 			.take()
@@ -371,14 +283,7 @@ impl Sandbox for HostContext {
 			)
 		}));
 
-		self.instance_wrapper
-			.host_state()
-			.lock()
-			.expect("failed to lock; qed")
-			.as_mut()
-			.expect("host state is not empty when calling a function in wasm; qed")
-			.sandbox_store
-			.0 = Some(store);
+		self.host_state_mut().sandbox_store.0 = Some(store);
 
 		let result = match result {
 			Ok(result) => result,
@@ -386,19 +291,7 @@ impl Sandbox for HostContext {
 		};
 
 		let instance_idx_or_err_code = match result {
-			Ok(instance) => instance.register(
-				self.instance_wrapper
-					.host_state()
-					.lock()
-					.expect("failed to lock; qed")
-					.as_mut()
-					.expect("host state is not empty when calling a function in wasm; qed")
-					.sandbox_store
-					.0
-					.as_mut()
-					.expect("sandbox store is only empty when temporarily borrowed"),
-				dispatch_thunk.clone(),
-			),
+			Ok(instance) => instance.register(self.sandbox_store_mut(), dispatch_thunk.clone()),
 			Err(sandbox::InstantiationError::StartTrapped) => sandbox_env::ERR_EXECUTION,
 			Err(_) => sandbox_env::ERR_MODULE,
 		};
@@ -411,16 +304,7 @@ impl Sandbox for HostContext {
 		instance_idx: u32,
 		name: &str,
 	) -> sp_wasm_interface::Result<Option<sp_wasm_interface::Value>> {
-		self.instance_wrapper
-			.host_state()
-			.lock()
-			.expect("failed to lock; qed")
-			.as_mut()
-			.expect("host state is not empty when calling a function in wasm; qed")
-			.sandbox_store
-			.0
-			.as_ref()
-			.expect("sandbox store is only empty when temporarily borrowed")
+		self.sandbox_store()
 			.instance(instance_idx)
 			.map(|i| i.get_global_val(name))
 			.map_err(|e| e.to_string())

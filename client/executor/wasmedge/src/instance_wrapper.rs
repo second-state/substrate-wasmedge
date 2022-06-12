@@ -29,7 +29,7 @@ pub struct InstanceWrapper {
 	vm_instantiated: Arc<Mutex<Vm>>,
 	instance: wasmedge_sys::Instance,
 	memory: wasmedge_sys::Memory,
-	host_state: Arc<Mutex<Option<HostState>>>,
+	host_state: Option<HostState>,
 }
 
 impl InstanceWrapper {
@@ -58,12 +58,12 @@ impl InstanceWrapper {
 			vm_instantiated: Arc::clone(&vm_validated),
 			instance,
 			memory,
-			host_state: Arc::new(Mutex::new(None)),
+			host_state: None,
 		})
 	}
 
 	pub fn call(
-		&self,
+		&mut self,
 		method: InvokeMethod,
 		data_ptr: Pointer<u8>,
 		data_len: WordSize,
@@ -158,10 +158,7 @@ impl InstanceWrapper {
 
 			let backtrace = Backtrace { backtrace_string };
 			if let Some(error) = self
-				.host_state
-				.lock()
-				.expect("failed to lock; qed")
-				.as_mut()
+				.host_state_mut()
 				.expect("host state cannot be empty while a function is being called; qed")
 				.take_panic_message()
 			{
@@ -249,12 +246,52 @@ impl InstanceWrapper {
 		}
 	}
 
-	pub(crate) fn host_state(&self) -> Arc<Mutex<Option<HostState>>> {
-		self.host_state.clone()
+	pub fn host_state(&self) -> Option<&HostState> {
+		self.host_state.as_ref()
 	}
 
-	pub(crate) fn set_host_state(&mut self, host_state: Option<HostState>) {
-		self.host_state = Arc::new(Mutex::new(host_state));
+	pub fn host_state_mut(&mut self) -> Option<&mut HostState> {
+		self.host_state.as_mut()
+	}
+
+	pub fn set_host_state(&mut self, host_state: Option<HostState>) {
+		self.host_state = host_state;
+	}
+
+	pub fn allocate_memory(
+		&mut self,
+		size: sp_wasm_interface::WordSize,
+	) -> sp_wasm_interface::Result<Pointer<u8>> {
+		let memory_slice = unsafe {
+			std::slice::from_raw_parts_mut(
+				self.base_ptr_mut(),
+				(self.memory().size() * 64 * 1024 * 8) as usize,
+			)
+		};
+
+		self.host_state_mut()
+			.expect("host state is not empty when calling a function in wasm; qed")
+			.allocator()
+			.allocate(memory_slice, size)
+			.map_err(|e| e.to_string())
+	}
+
+	pub fn deallocate_memory(
+		&mut self,
+		ptr: sp_wasm_interface::Pointer<u8>,
+	) -> sp_wasm_interface::Result<()> {
+		let memory_slice = unsafe {
+			std::slice::from_raw_parts_mut(
+				self.base_ptr_mut(),
+				(self.memory().size() * 64 * 1024 * 8) as usize,
+			)
+		};
+
+		self.host_state_mut()
+			.expect("host state is not empty when calling a function in wasm; qed")
+			.allocator()
+			.deallocate(memory_slice, ptr)
+			.map_err(|e| e.to_string())
 	}
 
 	pub fn decommit(&mut self) {
