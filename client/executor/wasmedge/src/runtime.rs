@@ -1,23 +1,4 @@
-// This file is part of Substrate.
-
-// Copyright (C) 2019-2022 Parity Technologies (UK) Ltd.
-// SPDX-License-Identifier: GPL-3.0-or-later WITH Classpath-exception-2.0
-
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-// GNU General Public License for more details.
-
-// You should have received a copy of the GNU General Public License
-// along with this program. If not, see <https://www.gnu.org/licenses/>.
-
 use crate::{host::HostState, instance_wrapper::InstanceWrapper, util};
-
 use sc_allocator::FreeingBumpHeapAllocator;
 use sc_executor_common::{
 	error::{Result, WasmError},
@@ -27,8 +8,7 @@ use sc_executor_common::{
 	wasm_runtime::{InvokeMethod, WasmInstance, WasmModule},
 };
 use sp_runtime_interface::unpack_ptr_and_len;
-use sp_wasm_interface::{HostFunctions, Value};
-use sp_wasm_interface::{Pointer, WordSize};
+use sp_wasm_interface::{Function, HostFunctions, Pointer, Value, WordSize};
 use std::sync::{Arc, Mutex};
 use wasmedge_sys::Vm;
 
@@ -50,19 +30,33 @@ struct InstanceSnapshotData {
 }
 
 pub struct WasmEdgeRuntime {
-	vm_validated: Arc<Mutex<Vm>>,
+	vm: Arc<Mutex<Vm>>,
 	snapshot_data: Option<InstanceSnapshotData>,
+	host_functions: Vec<&'static dyn Function>,
+	module: wasmedge_sys::Module,
+	allow_missing_func_imports: bool,
 }
 
 impl WasmModule for WasmEdgeRuntime {
 	fn new_instance(&self) -> Result<Box<dyn WasmInstance>> {
+		let instance_wrapper = InstanceWrapper::new(Arc::clone(&self.vm));
+
+		crate::imports::prepare_imports(
+			Arc::clone(&instance_wrapper),
+			&self.module,
+			&self.host_functions,
+			self.allow_missing_func_imports,
+		)
+		.map_err(|e| WasmError::Other(format!("fail to register imports: {}", e)))?;
+
 		let strategy = if let Some(ref snapshot_data) = self.snapshot_data {
-			let mut instance_wrapper = InstanceWrapper::new(Arc::clone(&self.vm_validated))?;
-			let heap_base = instance_wrapper.extract_heap_base()?;
+			instance_wrapper.lock().unwrap().instantiate()?;
+
+			let heap_base = instance_wrapper.lock().unwrap().extract_heap_base()?;
 
 			let globals_snapshot = GlobalsSnapshot::take(
 				&snapshot_data.mutable_globals,
-				&mut InstanceGlobals { instance: &mut instance_wrapper },
+				&mut InstanceGlobals { instance: Arc::clone(&instance_wrapper) },
 			);
 
 			Strategy::FastInstanceReuse {
@@ -73,7 +67,7 @@ impl WasmModule for WasmEdgeRuntime {
 			}
 		} else {
 			Strategy::RecreateInstance(InstanceCreator {
-				vm_validated: Arc::clone(&self.vm_validated),
+				instance_wrapper: Arc::clone(&instance_wrapper),
 			})
 		};
 
@@ -81,16 +75,16 @@ impl WasmModule for WasmEdgeRuntime {
 	}
 }
 
-struct InstanceGlobals<'a> {
-	instance: &'a mut InstanceWrapper,
+struct InstanceGlobals {
+	instance: Arc<Mutex<InstanceWrapper>>,
 }
 
-impl<'a> runtime_blob::InstanceGlobals for InstanceGlobals<'a> {
+impl runtime_blob::InstanceGlobals for InstanceGlobals {
 	type Global = Arc<Mutex<wasmedge_sys::Global>>;
 
 	fn get_global(&mut self, export_name: &str) -> Self::Global {
 		Arc::new(Mutex::new(
-			self.instance.get_global(export_name).expect(
+			self.instance.lock().unwrap().get_global(export_name).expect(
 				"get_global is guaranteed to be called with an export name of a global; qed",
 			),
 		))
@@ -113,7 +107,7 @@ pub struct WasmEdgeInstance {
 
 enum Strategy {
 	FastInstanceReuse {
-		instance_wrapper: InstanceWrapper,
+		instance_wrapper: Arc<Mutex<InstanceWrapper>>,
 		globals_snapshot: GlobalsSnapshot<Arc<Mutex<wasmedge_sys::Global>>>,
 		data_segments_snapshot: Arc<DataSegmentsSnapshot>,
 		heap_base: u32,
@@ -122,12 +116,13 @@ enum Strategy {
 }
 
 struct InstanceCreator {
-	vm_validated: Arc<Mutex<Vm>>,
+	instance_wrapper: Arc<Mutex<InstanceWrapper>>,
 }
 
 impl InstanceCreator {
-	fn instantiate(&mut self) -> Result<InstanceWrapper> {
-		InstanceWrapper::new(Arc::clone(&self.vm_validated))
+	fn instantiate(&mut self) -> Result<()> {
+		self.instance_wrapper.lock().unwrap().instantiate()?;
+		Ok(())
 	}
 }
 
@@ -135,35 +130,42 @@ impl WasmInstance for WasmEdgeInstance {
 	fn call(&mut self, method: InvokeMethod, data: &[u8]) -> Result<Vec<u8>> {
 		match &mut self.strategy {
 			Strategy::FastInstanceReuse {
-				ref mut instance_wrapper,
+				instance_wrapper,
 				globals_snapshot,
 				data_segments_snapshot,
 				heap_base,
 			} => {
 				data_segments_snapshot.apply(|offset, contents| {
 					util::write_memory_from(
-						instance_wrapper.memory_slice_mut(),
+						instance_wrapper.lock().unwrap().memory_slice_mut(),
 						Pointer::new(offset),
 						contents,
 					)
 				})?;
 
-				globals_snapshot.apply(&mut InstanceGlobals { instance: instance_wrapper });
+				globals_snapshot
+					.apply(&mut InstanceGlobals { instance: Arc::clone(instance_wrapper) });
 				let allocator = FreeingBumpHeapAllocator::new(*heap_base);
 
-				let result = perform_call(data, instance_wrapper, method, allocator);
+				let result = perform_call(data, Arc::clone(instance_wrapper), method, allocator);
 
-				instance_wrapper.decommit();
+				instance_wrapper.lock().unwrap().decommit();
 
 				result
 			},
-			Strategy::RecreateInstance(ref mut instance_creator) => {
-				let mut instance_wrapper = instance_creator.instantiate()?;
-				let heap_base = instance_wrapper.extract_heap_base()?;
+			Strategy::RecreateInstance(instance_creator) => {
+				instance_creator.instantiate()?;
+				let heap_base =
+					instance_creator.instance_wrapper.lock().unwrap().extract_heap_base()?;
 
 				let allocator = FreeingBumpHeapAllocator::new(heap_base);
 
-				perform_call(data, &mut instance_wrapper, method, allocator)
+				perform_call(
+					data,
+					Arc::clone(&instance_creator.instance_wrapper),
+					method,
+					allocator,
+				)
 			},
 		}
 	}
@@ -171,10 +173,11 @@ impl WasmInstance for WasmEdgeInstance {
 	fn get_global_const(&mut self, name: &str) -> Result<Option<Value>> {
 		match &mut self.strategy {
 			Strategy::FastInstanceReuse { instance_wrapper, .. } => {
-				instance_wrapper.get_global_val(name)
+				instance_wrapper.lock().unwrap().get_global_val(name)
 			},
 			Strategy::RecreateInstance(ref mut instance_creator) => {
-				instance_creator.instantiate()?.get_global_val(name)
+				instance_creator.instantiate()?;
+				instance_creator.instance_wrapper.lock().unwrap().get_global_val(name)
 			},
 		}
 	}
@@ -183,7 +186,7 @@ impl WasmInstance for WasmEdgeInstance {
 		match &self.strategy {
 			Strategy::RecreateInstance(_) => None,
 			Strategy::FastInstanceReuse { instance_wrapper, .. } => {
-				Some(instance_wrapper.base_ptr())
+				Some(instance_wrapper.lock().unwrap().base_ptr())
 			},
 		}
 	}
@@ -224,12 +227,18 @@ where
 	vm.load_wasm_from_module(&module)
 		.map_err(|e| WasmError::Other(format!("fail to load wasm from Module: {}", e)))?;
 
-	crate::imports::prepare_imports::<H>(&mut vm, &module, config.allow_missing_func_imports)?;
+	// crate::imports::prepare_imports::<H>(&mut vm, &module, config.allow_missing_func_imports)?;
 
-	vm.validate()
-		.map_err(|e| WasmError::Other(format!("fail to validate the wasm module: {}", e)))?;
+	// vm.validate()
+	// 	.map_err(|e| WasmError::Other(format!("fail to validate the wasm module: {}", e)))?;
 
-	Ok(WasmEdgeRuntime { vm_validated: Arc::new(Mutex::new(vm)), snapshot_data })
+	Ok(WasmEdgeRuntime {
+		vm: Arc::new(Mutex::new(vm)),
+		snapshot_data,
+		host_functions: H::host_functions(),
+		module,
+		allow_missing_func_imports: config.allow_missing_func_imports,
+	})
 }
 
 fn common_config(config: &Config) -> std::result::Result<wasmedge_sys::Config, WasmError> {
@@ -272,44 +281,61 @@ fn prepare_blob_for_compilation(
 
 fn perform_call(
 	data: &[u8],
-	instance_wrapper: &mut InstanceWrapper,
+	instance_wrapper: Arc<Mutex<InstanceWrapper>>,
 	method: InvokeMethod,
 	mut allocator: FreeingBumpHeapAllocator,
 ) -> Result<Vec<u8>> {
-	let (data_ptr, data_len) = inject_input_data(instance_wrapper, &mut allocator, data)?;
+	let data_len = data.len() as WordSize;
+	let data_ptr = allocator
+		.allocate(Arc::clone(&instance_wrapper).lock().unwrap().memory_slice_mut(), data_len)?;
+	util::write_memory_from(
+		Arc::clone(&instance_wrapper).lock().unwrap().memory_slice_mut(),
+		data_ptr,
+		data,
+	)?;
 
 	let host_state = HostState::new(allocator);
 
-	instance_wrapper.set_host_state(Some(host_state));
+	Arc::clone(&instance_wrapper).lock().unwrap().set_host_state(Some(host_state));
 
-	let ret = instance_wrapper.call(method, data_ptr, data_len).map(unpack_ptr_and_len);
+	let ret = instance_wrapper
+		.lock()
+		.unwrap()
+		.call(method, data_ptr, data_len)
+		.map(unpack_ptr_and_len);
 
-	instance_wrapper.set_host_state(None);
+	instance_wrapper.lock().unwrap().set_host_state(None);
 
 	let (output_ptr, output_len) = ret?;
-	let output = extract_output_data(instance_wrapper, output_ptr, output_len)?;
 
-	Ok(output)
-}
-
-fn inject_input_data(
-	instance_wrapper: &mut InstanceWrapper,
-	allocator: &mut FreeingBumpHeapAllocator,
-	data: &[u8],
-) -> Result<(Pointer<u8>, WordSize)> {
-	let memory_slice = instance_wrapper.memory_slice_mut();
-	let data_len = data.len() as WordSize;
-	let data_ptr = allocator.allocate(memory_slice, data_len)?;
-	util::write_memory_from(memory_slice, data_ptr, data)?;
-	Ok((data_ptr, data_len))
-}
-
-fn extract_output_data(
-	instance_wrapper: &InstanceWrapper,
-	output_ptr: u32,
-	output_len: u32,
-) -> Result<Vec<u8>> {
 	let mut output = vec![0; output_len as usize];
-	util::read_memory_into(instance_wrapper.memory_slice(), Pointer::new(output_ptr), &mut output)?;
+	util::read_memory_into(
+		instance_wrapper.lock().unwrap().memory_slice(),
+		Pointer::new(output_ptr),
+		&mut output,
+	)?;
+
 	Ok(output)
 }
+
+// fn inject_input_data(
+// 	instance_wrapper: Arc<Mutex<InstanceWrapper>>,
+// 	allocator: &mut FreeingBumpHeapAllocator,
+// 	data: &[u8],
+// ) -> Result<(Pointer<u8>, WordSize)> {
+// 	let memory_slice = instance_wrapper.lock().unwrap().memory_slice_mut();
+// 	let data_len = data.len() as WordSize;
+// 	let data_ptr = allocator.allocate(memory_slice, data_len)?;
+// 	util::write_memory_from(memory_slice, data_ptr, data)?;
+// 	Ok((data_ptr, data_len))
+// }
+
+// fn extract_output_data(
+// 	instance_wrapper: Arc<Mutex<InstanceWrapper>>,
+// 	output_ptr: u32,
+// 	output_len: u32,
+// ) -> Result<Vec<u8>> {
+// 	let mut output = vec![0; output_len as usize];
+// 	util::read_memory_into(instance_wrapper.lock().unwrap().memory_slice(), Pointer::new(output_ptr), &mut output)?;
+// 	Ok(output)
+// }

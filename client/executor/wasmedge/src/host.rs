@@ -1,38 +1,15 @@
-// This file is part of Substrate.
-
-// Copyright (C) 2019-2022 Parity Technologies (UK) Ltd.
-// SPDX-License-Identifier: GPL-3.0-or-later WITH Classpath-exception-2.0
-
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-// GNU General Public License for more details.
-
-// You should have received a copy of the GNU General Public License
-// along with this program. If not, see <https://www.gnu.org/licenses/>.
-
-use log::trace;
-
+use crate::{instance_wrapper::InstanceWrapper, util};
 use codec::{Decode, Encode};
+use log::trace;
 use sc_allocator::FreeingBumpHeapAllocator;
 use sc_executor_common::{
-	error::Result,
+	error::{Result, WasmError},
 	sandbox::{self, SupervisorFuncIndex},
 	util::MemoryTransfer,
 };
 use sp_sandbox::env as sandbox_env;
 use sp_wasm_interface::{FunctionContext, MemoryId, Pointer, Sandbox, WordSize};
-
-use crate::{instance_wrapper::InstanceWrapper, util};
-
-use std::sync::Arc;
-
-use sc_executor_common::error::WasmError;
+use std::sync::{Arc, MutexGuard};
 
 struct SandboxStore(Option<Box<sandbox::Store<Arc<wasmedge_sys::FuncRef>>>>);
 
@@ -64,11 +41,14 @@ impl HostState {
 	}
 }
 
-pub(crate) struct HostContext {
-	instance_wrapper: InstanceWrapper,
+pub(crate) struct HostContext<'a> {
+	instance_wrapper: MutexGuard<'a, InstanceWrapper>,
 }
 
-impl HostContext {
+impl<'a> HostContext<'a> {
+	pub fn new(instance_wrapper: MutexGuard<'a, InstanceWrapper>) -> Self {
+		HostContext { instance_wrapper }
+	}
 	fn host_state(&self) -> &HostState {
 		self.instance_wrapper
 			.host_state()
@@ -98,7 +78,7 @@ impl HostContext {
 	}
 }
 
-impl sp_wasm_interface::FunctionContext for HostContext {
+impl<'a> sp_wasm_interface::FunctionContext for HostContext<'a> {
 	fn read_memory_into(
 		&self,
 		address: Pointer<u8>,
@@ -126,11 +106,14 @@ impl sp_wasm_interface::FunctionContext for HostContext {
 	}
 
 	fn register_panic_error_message(&mut self, message: &str) {
-		self.host_state_mut().panic_message = Some(message.to_owned());
+		self.instance_wrapper
+			.host_state_mut()
+			.expect("host state is not empty when calling a function in wasm; qed")
+			.panic_message = Some(message.to_owned());
 	}
 }
 
-impl Sandbox for HostContext {
+impl<'a> Sandbox for HostContext<'a> {
 	fn memory_get(
 		&mut self,
 		memory_id: MemoryId,
@@ -249,15 +232,11 @@ impl Sandbox for HostContext {
 				.instance_wrapper
 				.instance()
 				.get_table("__indirect_function_table")
-				.map_err(|_| {
-					"Runtime doesn't have a table; sandbox is unavailable"
-				})?;
+				.map_err(|_| "Runtime doesn't have a table; sandbox is unavailable")?;
 
 			table
 				.get_data(dispatch_thunk_id)
-				.map_err(|_| {
-					"dispatch_thunk_id is out of bounds"
-				})?
+				.map_err(|_| "dispatch_thunk_id is out of bounds")?
 				.func_ref()
 				.ok_or("dispatch_thunk_idx should be a funcref")?
 		};
@@ -285,7 +264,11 @@ impl Sandbox for HostContext {
 			)
 		}));
 
-		self.host_state_mut().sandbox_store.0 = Some(store);
+		self.instance_wrapper
+			.host_state_mut()
+			.expect("host state is not empty when calling a function in wasm; qed")
+			.sandbox_store
+			.0 = Some(store);
 
 		let result = match result {
 			Ok(result) => result,
@@ -313,12 +296,12 @@ impl Sandbox for HostContext {
 	}
 }
 
-struct SandboxContext<'a> {
-	host_context: &'a mut HostContext,
+struct SandboxContext<'a, 'b> {
+	host_context: &'a mut HostContext<'b>,
 	dispatch_thunk: Arc<wasmedge_sys::FuncRef>,
 }
 
-impl<'a> sandbox::SandboxContext for SandboxContext<'a> {
+impl<'a, 'b> sandbox::SandboxContext for SandboxContext<'a, 'b> {
 	fn invoke(
 		&mut self,
 		invoke_args_ptr: Pointer<u8>,

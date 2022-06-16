@@ -1,21 +1,3 @@
-// This file is part of Substrate.
-
-// Copyright (C) 2019-2022 Parity Technologies (UK) Ltd.
-// SPDX-License-Identifier: GPL-3.0-or-later WITH Classpath-exception-2.0
-
-// This program is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
-
-// This program is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-// GNU General Public License for more details.
-
-// You should have received a copy of the GNU General Public License
-// along with this program. If not, see <https://www.gnu.org/licenses/>.
-
 use crate::host::HostState;
 use sc_executor_common::{
 	error::{Backtrace, Error, MessageWithBacktrace, Result, WasmError},
@@ -26,15 +8,19 @@ use std::sync::{Arc, Mutex};
 use wasmedge_sys::Vm;
 
 pub struct InstanceWrapper {
-	vm_instantiated: Arc<Mutex<Vm>>,
-	instance: wasmedge_sys::Instance,
-	memory: wasmedge_sys::Memory,
+	vm: Arc<Mutex<Vm>>,
+	instance: Option<wasmedge_sys::Instance>,
+	memory: Option<wasmedge_sys::Memory>,
 	host_state: Option<HostState>,
 }
 
 impl InstanceWrapper {
-	pub(crate) fn new(vm_validated: Arc<Mutex<Vm>>) -> Result<Self> {
-		vm_validated
+	pub fn new(vm: Arc<Mutex<Vm>>) -> Arc<Mutex<Self>> {
+		Arc::new(Mutex::new(InstanceWrapper { vm, instance: None, memory: None, host_state: None }))
+	}
+
+	pub fn instantiate(&mut self) -> Result<()> {
+		self.vm
 			.lock()
 			.map_err(|e| WasmError::Other(format!("failed to lock: {}", e,)))?
 			.instantiate()
@@ -44,7 +30,8 @@ impl InstanceWrapper {
 				)
 			})?;
 
-		let instance = vm_validated
+		let instance = self
+			.vm
 			.lock()
 			.map_err(|e| WasmError::Other(format!("failed to lock: {}", e,)))?
 			.active_module()
@@ -54,12 +41,9 @@ impl InstanceWrapper {
 			WasmError::Other(format!("failed to get WASM memory named 'memory': {}", e,))
 		})?;
 
-		Ok(InstanceWrapper {
-			vm_instantiated: Arc::clone(&vm_validated),
-			instance,
-			memory,
-			host_state: None,
-		})
+		self.instance = Some(instance);
+		self.memory = Some(memory);
+		Ok(())
 	}
 
 	pub fn call(
@@ -81,7 +65,7 @@ impl InstanceWrapper {
 
 		match method {
 			InvokeMethod::Export(method) => {
-				let func = self.instance.get_func(method).map_err(|error| {
+				let func = self.instance().get_func(method).map_err(|error| {
 					WasmError::Other(format!("function is not found: {}", error,))
 				})?;
 
@@ -97,7 +81,7 @@ impl InstanceWrapper {
 			},
 			InvokeMethod::Table(func_ref) => {
 				let table =
-					self.instance.get_table("__indirect_function_table").map_err(|error| {
+					self.instance().get_table("__indirect_function_table").map_err(|error| {
 						WasmError::Other(format!(
 							"table named '__indirect_function_table' is not found: {}",
 							error,
@@ -121,7 +105,7 @@ impl InstanceWrapper {
 			},
 			InvokeMethod::TableWithWrapper { dispatcher_ref, func } => {
 				let table =
-					self.instance.get_table("__indirect_function_table").map_err(|error| {
+					self.instance().get_table("__indirect_function_table").map_err(|error| {
 						WasmError::Other(format!(
 							"table named '__indirect_function_table' is not found: {}",
 							error,
@@ -178,7 +162,7 @@ impl InstanceWrapper {
 	}
 
 	pub fn extract_heap_base(&mut self) -> Result<u32> {
-		let heap_base_export = self.instance.get_global("__heap_base").map_err(|error| {
+		let heap_base_export = self.instance().get_global("__heap_base").map_err(|error| {
 			WasmError::Other(format!("failed to get WASM global named '__heap_base': {}", error,))
 		})?;
 
@@ -188,7 +172,7 @@ impl InstanceWrapper {
 
 	pub fn get_global_val(&mut self, name: &str) -> Result<Option<Value>> {
 		let global = self
-			.instance
+			.instance()
 			.get_global(name)
 			.map_err(|error| Error::Other(format!("failed to get WASM global: {}", error,)))?
 			.get_value();
@@ -203,29 +187,37 @@ impl InstanceWrapper {
 	}
 
 	pub fn get_global(&mut self, name: &str) -> Result<wasmedge_sys::Global> {
-		self.instance
+		self.instance()
 			.get_global(name)
 			.map_err(|error| Error::Other(format!("failed to get WASM global: {}", error,)))
 	}
 
 	pub fn base_ptr(&self) -> *const u8 {
-		self.memory
+		self.memory()
 			.data_pointer(0, 1)
 			.expect("failed to returns the const data pointer to the Memory.")
 	}
 
 	pub fn base_ptr_mut(&mut self) -> *mut u8 {
-		self.memory
+		self.memory_mut()
 			.data_pointer_mut(0, 1)
 			.expect("failed to returns the mut data pointer to the Memory.")
 	}
 
 	pub(crate) fn memory(&self) -> &wasmedge_sys::Memory {
-		&self.memory
+		&self.memory.as_ref().unwrap()
+	}
+
+	pub(crate) fn memory_mut(&mut self) -> &mut wasmedge_sys::Memory {
+		self.memory.as_mut().unwrap()
 	}
 
 	pub(crate) fn instance(&self) -> &wasmedge_sys::Instance {
-		&self.instance
+		&self.instance.as_ref().unwrap()
+	}
+
+	pub(crate) fn vm(&self) -> Arc<Mutex<Vm>> {
+		Arc::clone(&self.vm)
 	}
 
 	pub fn memory_slice_mut(&mut self) -> &mut [u8] {
@@ -295,7 +287,7 @@ impl InstanceWrapper {
 	}
 
 	pub fn decommit(&mut self) {
-		if self.memory.size() == 0 {
+		if self.memory().size() == 0 {
 			return;
 		}
 
@@ -305,7 +297,7 @@ impl InstanceWrapper {
 
 				unsafe {
 					let ptr = self.base_ptr();
-					let len = (self.memory.size() * 64 * 1024) as usize;
+					let len = (self.memory().size() * 64 * 1024) as usize;
 
 					if libc::madvise(ptr as _, len, libc::MADV_DONTNEED) != 0 {
 						static LOGGED: Once = Once::new();
@@ -324,7 +316,7 @@ impl InstanceWrapper {
 
 				unsafe {
 					let ptr = self.base_ptr();
-					let len = (self.memory.size() * 64 * 1024) as usize;
+					let len = (self.memory().size() * 64 * 1024) as usize;
 
 					if libc::mmap(
 						ptr as _,
