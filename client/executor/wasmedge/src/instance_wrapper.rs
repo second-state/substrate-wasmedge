@@ -23,6 +23,12 @@ impl InstanceWrapper {
 		self.vm
 			.lock()
 			.map_err(|e| WasmError::Other(format!("failed to lock: {}", e,)))?
+			.validate()
+			.map_err(|e| WasmError::Other(format!("fail to validate the wasm module: {}", e)))?;
+
+		self.vm
+			.lock()
+			.map_err(|e| WasmError::Other(format!("failed to lock: {}", e,)))?
 			.instantiate()
 			.map_err(|e| {
 				WasmError::Other(
@@ -162,11 +168,17 @@ impl InstanceWrapper {
 	}
 
 	pub fn extract_heap_base(&mut self) -> Result<u32> {
-		let heap_base_export = self.instance().get_global("__heap_base").map_err(|error| {
-			WasmError::Other(format!("failed to get WASM global named '__heap_base': {}", error,))
-		})?;
+		let heap_base = self
+			.instance()
+			.get_global("__heap_base")
+			.map_err(|error| {
+				WasmError::Other(format!(
+					"failed to get WASM global named '__heap_base': {}",
+					error,
+				))
+			})?
+			.get_value();
 
-		let heap_base = heap_base_export.get_value();
 		Ok(heap_base.to_f32() as u32)
 	}
 
@@ -205,7 +217,7 @@ impl InstanceWrapper {
 	}
 
 	pub(crate) fn memory(&self) -> &wasmedge_sys::Memory {
-		&self.memory.as_ref().unwrap()
+		self.memory.as_ref().unwrap()
 	}
 
 	pub(crate) fn memory_mut(&mut self) -> &mut wasmedge_sys::Memory {
@@ -213,7 +225,7 @@ impl InstanceWrapper {
 	}
 
 	pub(crate) fn instance(&self) -> &wasmedge_sys::Instance {
-		&self.instance.as_ref().unwrap()
+		self.instance.as_ref().unwrap()
 	}
 
 	pub(crate) fn vm(&self) -> Arc<Mutex<Vm>> {
@@ -286,6 +298,9 @@ impl InstanceWrapper {
 			.map_err(|e| e.to_string())
 	}
 
+	/// If possible removes physical backing from the allocated linear memory which
+	/// leads to returning the memory back to the system; this also zeroes the memory
+	/// as a side-effect.
 	pub fn decommit(&mut self) {
 		if self.memory().size() == 0 {
 			return;
@@ -297,8 +312,10 @@ impl InstanceWrapper {
 
 				unsafe {
 					let ptr = self.base_ptr();
-					let len = (self.memory().size() * 64 * 1024) as usize;
+					let len = (self.memory().size() * 64 * 1024 * 8) as usize;
 
+					// Linux handles MADV_DONTNEED reliably. The result is that the given area
+					// is unmapped and will be zeroed on the next pagefault.
 					if libc::madvise(ptr as _, len, libc::MADV_DONTNEED) != 0 {
 						static LOGGED: Once = Once::new();
 						LOGGED.call_once(|| {
@@ -316,7 +333,7 @@ impl InstanceWrapper {
 
 				unsafe {
 					let ptr = self.base_ptr();
-					let len = (self.memory().size() * 64 * 1024) as usize;
+					let len = (self.memory().size() * 64 * 1024 * 8) as usize;
 
 					if libc::mmap(
 						ptr as _,
@@ -340,13 +357,8 @@ impl InstanceWrapper {
 			}
 		}
 
-		let memory_slice: &mut [u8];
-		unsafe {
-			memory_slice = std::slice::from_raw_parts_mut(
-				self.base_ptr_mut(),
-				(self.memory().size() * 64 * 1024 * 8) as usize,
-			);
-		}
-		memory_slice.fill(0);
+		// If we're on an unsupported OS or the memory couldn't have been
+		// decommited for some reason then just manually zero it out.
+		self.memory_slice_mut().fill(0);
 	}
 }
