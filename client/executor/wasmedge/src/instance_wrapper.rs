@@ -6,6 +6,7 @@ use sc_executor_common::{
 use sp_wasm_interface::{Pointer, Value, WordSize};
 use std::sync::{Arc, Mutex};
 use wasmedge_sys::Vm;
+use wasmedge_types::ValType;
 
 pub struct InstanceWrapper {
 	vm: Arc<Mutex<Vm>>,
@@ -69,75 +70,59 @@ impl InstanceWrapper {
 			WasmError::Other(format!("fail to create a WasmEdge Executor context: {}", e))
 		})?;
 
-		match method {
+		let res = match method {
 			InvokeMethod::Export(method) => {
 				let func = self.instance().get_func(method).map_err(|error| {
 					WasmError::Other(format!("function is not found: {}", error,))
 				})?;
 
-				let func_type = func.ty().map_err(|error| {
-					WasmError::Other(format!("fail to get the function type: {}", error,))
-				})?;
+				check_signature1(&func)?;
 
-				if func_type.params_len() != 2 || func_type.returns_len() != 1 {
-					return Err(Error::Other(format!("Invalid signature for direct entry point")));
-				}
-
-				res = func.call(&mut executor, vec![data_ptr, data_len]);
+				func.call(&mut executor, vec![data_ptr, data_len])
 			},
 			InvokeMethod::Table(func_ref) => {
-				let table =
-					self.instance().get_table("__indirect_function_table").map_err(|error| {
-						WasmError::Other(format!(
-							"table named '__indirect_function_table' is not found: {}",
-							error,
-						))
-					})?;
+				let table = self
+					.instance()
+					.get_table("__indirect_function_table")
+					.map_err(|_| Error::NoTable)?;
 
 				let func_ref = table
 					.get_data(func_ref)
-					.map_err(|error| {
-						WasmError::Other(format!("failed to get the data: {}", error,))
-					})?
-					.func_ref();
+					.map_err(|_| Error::NoTableEntryWithIndex(func_ref))?
+					.func_ref()
+					.ok_or(Error::FunctionRefIsNull(func_ref))?;
 
-				if let Some(func_ref) = func_ref {
-					res = func_ref.call(&mut executor, vec![data_ptr, data_len]);
-				} else {
-					return Err(sc_executor_common::error::Error::Other(format!(
-						"the WasmValue is a NullRef"
-					)));
-				}
+				check_signature2(&func_ref)?;
+
+				func_ref.call(&mut executor, vec![data_ptr, data_len])
 			},
 			InvokeMethod::TableWithWrapper { dispatcher_ref, func } => {
-				let table =
-					self.instance().get_table("__indirect_function_table").map_err(|error| {
-						WasmError::Other(format!(
-							"table named '__indirect_function_table' is not found: {}",
-							error,
-						))
-					})?;
+				let table = self
+					.instance()
+					.get_table("__indirect_function_table")
+					.map_err(|_| Error::NoTable)?;
+
 				let func_ref = table
 					.get_data(dispatcher_ref)
-					.map_err(|error| {
-						WasmError::Other(format!("failed to get the data: {}", error,))
-					})?
-					.func_ref();
+					.map_err(|_| Error::NoTableEntryWithIndex(dispatcher_ref))?
+					.func_ref()
+					.ok_or(Error::FunctionRefIsNull(dispatcher_ref))?;
 
-				if let Some(func_ref) = func_ref {
-					res = func_ref.call(
-						&mut executor,
-						vec![wasmedge_sys::WasmValue::from_f32(func as f32), data_ptr, data_len],
-					);
-				} else {
-					return Err(sc_executor_common::error::Error::Other(format!(
-						"the WasmValue is a NullRef"
-					)));
-				}
+				check_signature3(&func_ref)?;
+
+				func_ref.call(
+					&mut executor,
+					vec![wasmedge_sys::WasmValue::from_f32(func as f32), data_ptr, data_len],
+				)
 			},
-		};
+		}
+		.map_err(|trap| {
+			let host_state = self
+				.host_state_mut()
+				.expect("host state cannot be empty while a function is being called; qed");
 
-		let s = res.map_err(|trap| {
+			// The logic to print out a backtrace is somewhat complicated,
+			// so let's get wasmtime to print it out for us.
 			let mut backtrace_string = trap.to_string();
 			let suffix = "\nwasm backtrace:";
 			if let Some(index) = backtrace_string.find(suffix) {
@@ -147,11 +132,7 @@ impl InstanceWrapper {
 			}
 
 			let backtrace = Backtrace { backtrace_string };
-			if let Some(error) = self
-				.host_state_mut()
-				.expect("host state cannot be empty while a function is being called; qed")
-				.take_panic_message()
-			{
+			if let Some(error) = host_state.take_panic_message() {
 				Error::AbortedDueToPanic(MessageWithBacktrace {
 					message: error,
 					backtrace: Some(backtrace),
@@ -164,7 +145,7 @@ impl InstanceWrapper {
 			}
 		})?;
 
-		Ok(s[0].to_f64() as u64)
+		Ok(res[0].to_f64() as u64)
 	}
 
 	pub fn extract_heap_base(&mut self) -> Result<u32> {
@@ -190,10 +171,10 @@ impl InstanceWrapper {
 			.get_value();
 
 		match global.ty() {
-			wasmedge_types::ValType::I32 => Ok(Some(Value::I32(global.to_i32()))),
-			wasmedge_types::ValType::I64 => Ok(Some(Value::I64(global.to_i64()))),
-			wasmedge_types::ValType::F32 => Ok(Some(Value::F32(global.to_f32() as u32))),
-			wasmedge_types::ValType::F64 => Ok(Some(Value::F64(global.to_f64() as u64))),
+			ValType::I32 => Ok(Some(Value::I32(global.to_i32()))),
+			ValType::I64 => Ok(Some(Value::I64(global.to_i64()))),
+			ValType::F32 => Ok(Some(Value::F32(global.to_f32() as u32))),
+			ValType::F64 => Ok(Some(Value::F64(global.to_f64() as u64))),
 			_ => Err("Unknown value type".into()),
 		}
 	}
@@ -361,4 +342,46 @@ impl InstanceWrapper {
 		// decommited for some reason then just manually zero it out.
 		self.memory_slice_mut().fill(0);
 	}
+}
+
+fn check_signature1(func: &wasmedge_sys::Function) -> Result<()> {
+	let func_type = func
+		.ty()
+		.map_err(|error| WasmError::Other(format!("fail to get the function type: {}", error,)))?;
+
+	let params: Vec<ValType> = func_type.params_type_iter().collect();
+	let returns: Vec<ValType> = func_type.returns_type_iter().collect();
+
+	if params != vec![ValType::F32, ValType::F32] || returns != [ValType::F64] {
+		return Err(Error::Other(format!("Invalid signature for direct entry point")));
+	}
+	Ok(())
+}
+
+fn check_signature2(func_ref: &wasmedge_sys::FuncRef) -> Result<()> {
+	let func_type = func_ref
+		.ty()
+		.map_err(|error| WasmError::Other(format!("fail to get the function type: {}", error,)))?;
+
+	let params: Vec<ValType> = func_type.params_type_iter().collect();
+	let returns: Vec<ValType> = func_type.returns_type_iter().collect();
+
+	if params != vec![ValType::F32, ValType::F32] || returns != [ValType::F64] {
+		return Err(Error::Other(format!("Invalid signature for direct entry point")));
+	}
+	Ok(())
+}
+
+fn check_signature3(func_ref: &wasmedge_sys::FuncRef) -> Result<()> {
+	let func_type = func_ref
+		.ty()
+		.map_err(|error| WasmError::Other(format!("fail to get the function type: {}", error,)))?;
+
+	let params: Vec<ValType> = func_type.params_type_iter().collect();
+	let returns: Vec<ValType> = func_type.returns_type_iter().collect();
+
+	if params != vec![ValType::F32, ValType::F32, ValType::F32] || returns != [ValType::F64] {
+		return Err(Error::Other(format!("Invalid signature for direct entry point")));
+	}
+	Ok(())
 }

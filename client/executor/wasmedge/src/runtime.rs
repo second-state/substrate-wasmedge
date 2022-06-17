@@ -460,7 +460,6 @@ fn common_config(
 	})?;
 
 	wasmedge_config.set_aot_optimization_level(wasmedge_types::CompilerOptimizationLevel::Os);
-	unimplemented!();
 
 	if let Some(max_memory_size) = semantics.max_memory_size {
 		wasmedge_config.set_max_memory_pages((max_memory_size / 64 / 1024) as u32);
