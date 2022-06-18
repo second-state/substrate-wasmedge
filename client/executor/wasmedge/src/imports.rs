@@ -94,7 +94,7 @@ pub(crate) fn prepare_imports(
 
 				let execution_result = match unwind_result {
 					Ok(execution_result) => execution_result,
-					Err(err) => return Err(0),
+					Err(_) => return Err(0),
 				};
 
 				match execution_result {
@@ -114,7 +114,7 @@ pub(crate) fn prepare_imports(
 						);
 						Ok(vec![])
 					},
-					Err(msg) => Err(0),
+					Err(_) => Err(0),
 				}
 			};
 
@@ -134,8 +134,8 @@ pub(crate) fn prepare_imports(
 
 	if !missing_func_imports.is_empty() {
 		if allow_missing_func_imports {
-			for (name, (import_ty, func_ty)) in missing_func_imports {
-				let function_static = move |inputs: Vec<wasmedge_sys::WasmValue>| -> std::result::Result<
+			for (name, (_, _)) in missing_func_imports {
+				let function_static = move |_: Vec<wasmedge_sys::WasmValue>| -> std::result::Result<
 					Vec<wasmedge_sys::WasmValue>,
 					u8,
 				> { Err(0) };

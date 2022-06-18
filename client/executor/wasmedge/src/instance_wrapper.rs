@@ -61,11 +61,7 @@ impl InstanceWrapper {
 	) -> Result<u64> {
 		let data_ptr = wasmedge_sys::WasmValue::from_f32(u32::from(data_ptr) as f32);
 		let data_len = wasmedge_sys::WasmValue::from_f32(u32::from(data_len) as f32);
-		let res: std::result::Result<
-			Vec<wasmedge_sys::WasmValue>,
-			wasmedge_types::error::WasmEdgeError,
-		>;
-
+		
 		let mut executor = wasmedge_sys::Executor::create(None, None).map_err(|e| {
 			WasmError::Other(format!("fail to create a WasmEdge Executor context: {}", e))
 		})?;
