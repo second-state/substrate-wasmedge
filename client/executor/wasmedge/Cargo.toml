@@ -15,14 +15,14 @@ targets = ["x86_64-unknown-linux-gnu"]
 [dependencies]
 libc = "0.2.121"
 cfg-if = "1.0"
-log = "0.4.16"
+log = "0.4.17"
 parity-wasm = "0.42.0"
 codec = { package = "parity-scale-codec", version = "3.0.0" }
-sc-executor-common = { version = "0.10.0-dev", path = "../common" }
-sp-wasm-interface = { version = "6.0.0", path = "../../../primitives/wasm-interface" }
-sp-runtime-interface = { version = "6.0.0", path = "../../../primitives/runtime-interface" }
 sc-allocator = { version = "4.1.0-dev", path = "../../allocator" }
+sc-executor-common = { version = "0.10.0-dev", path = "../common" }
+sp-runtime-interface = { version = "6.0.0", path = "../../../primitives/runtime-interface" }
 sp-sandbox = { version = "0.10.0-dev", path = "../../../primitives/sandbox" }
+sp-wasm-interface = { version = "6.0.0", features = ["wasmtime"], path = "../../../primitives/wasm-interface" }
 
 wasmedge-sys = "0.7.0"
 wasmedge-types = "0.1.3"

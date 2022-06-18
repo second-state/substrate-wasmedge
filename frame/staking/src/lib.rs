@@ -369,9 +369,9 @@ pub struct ActiveEraInfo {
 #[derive(PartialEq, Encode, Decode, RuntimeDebug, TypeInfo)]
 pub struct EraRewardPoints<AccountId: Ord> {
 	/// Total number of points. Equals the sum of reward points for each validator.
-	total: RewardPoint,
+	pub total: RewardPoint,
 	/// The reward points earned by a given validator.
-	individual: BTreeMap<AccountId, RewardPoint>,
+	pub individual: BTreeMap<AccountId, RewardPoint>,
 }
 
 impl<AccountId: Ord> Default for EraRewardPoints<AccountId> {
@@ -438,7 +438,7 @@ pub struct UnlockChunk<Balance: HasCompact> {
 }
 
 /// The ledger of a (bonded) stash.
-#[derive(PartialEq, Eq, Clone, Encode, Decode, RuntimeDebug, TypeInfo)]
+#[derive(PartialEq, Eq, Clone, Encode, Decode, RuntimeDebugNoBound, TypeInfo)]
 #[scale_info(skip_type_params(T))]
 pub struct StakingLedger<T: Config> {
 	/// The stash account whose balance is actually locked and at stake.
@@ -533,10 +533,12 @@ impl<T: Config> StakingLedger<T> {
 	/// case that either the active bonded or some unlocking chunks become dust after slashing.
 	/// Returns the amount of funds actually slashed.
 	///
+	/// `slash_era` is the era in which the slash (which is being enacted now) actually happened.
+	///
 	/// # Note
 	///
-	/// This calls `Config::OnStakerSlash::on_slash` with information as to how the slash
-	/// was applied.
+	/// This calls `Config::OnStakerSlash::on_slash` with information as to how the slash was
+	/// applied.
 	fn slash(
 		&mut self,
 		slash_amount: BalanceOf<T>,
@@ -605,16 +607,17 @@ impl<T: Config> StakingLedger<T> {
 		let mut slashed_unlocking = BTreeMap::<_, _>::new();
 		for i in slash_chunks_priority {
 			if let Some(chunk) = self.unlocking.get_mut(i).defensive() {
-				slash_out_of(&mut chunk.value, &mut remaining_slash);
-				// write the new slashed value of this chunk to the map.
-				slashed_unlocking.insert(chunk.era, chunk.value);
 				if remaining_slash.is_zero() {
 					break
 				}
+				slash_out_of(&mut chunk.value, &mut remaining_slash);
+				// write the new slashed value of this chunk to the map.
+				slashed_unlocking.insert(chunk.era, chunk.value);
 			} else {
 				break
 			}
 		}
+
 		self.unlocking.retain(|c| !c.value.is_zero());
 		T::OnStakerSlash::on_slash(&self.stash, self.active, &slashed_unlocking);
 		pre_slash_total.saturating_sub(self.total)

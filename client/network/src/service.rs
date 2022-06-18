@@ -228,12 +228,10 @@ where
 		)?;
 
 		// List of multiaddresses that we know in the network.
-		let mut bootnodes = Vec::new();
 		let mut boot_node_ids = HashSet::new();
 
 		// Process the bootnodes.
 		for bootnode in params.network_config.boot_nodes.iter() {
-			bootnodes.push(bootnode.peer_id);
 			boot_node_ids.insert(bootnode.peer_id);
 			known_addresses.push((bootnode.peer_id, bootnode.multiaddr.clone()));
 		}
@@ -241,12 +239,18 @@ where
 		let boot_node_ids = Arc::new(boot_node_ids);
 
 		// Check for duplicate bootnodes.
-		known_addresses.iter().try_for_each(|(peer_id, addr)| {
-			if let Some(other) = known_addresses.iter().find(|o| o.1 == *addr && o.0 != *peer_id) {
+		params.network_config.boot_nodes.iter().try_for_each(|bootnode| {
+			if let Some(other) = params
+				.network_config
+				.boot_nodes
+				.iter()
+				.filter(|o| o.multiaddr == bootnode.multiaddr)
+				.find(|o| o.peer_id != bootnode.peer_id)
+			{
 				Err(Error::DuplicateBootnode {
-					address: addr.clone(),
-					first_id: *peer_id,
-					second_id: other.0,
+					address: bootnode.multiaddr.clone(),
+					first_id: bootnode.peer_id,
+					second_id: other.peer_id,
 				})
 			} else {
 				Ok(())
@@ -375,7 +379,8 @@ where
 				)
 				.substream_upgrade_protocol_override(upgrade::Version::V1Lazy)
 				.notify_handler_buffer_size(NonZeroUsize::new(32).expect("32 != 0; qed"))
-				.connection_event_buffer_size(1024);
+				.connection_event_buffer_size(1024)
+				.max_negotiating_inbound_streams(2048);
 			if let Some(spawner) = params.executor {
 				struct SpawnImpl<F>(F);
 				impl<F: Fn(Pin<Box<dyn Future<Output = ()> + Send>>)> Executor for SpawnImpl<F> {

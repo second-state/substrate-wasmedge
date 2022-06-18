@@ -225,9 +225,7 @@ impl<'a> Sandbox for HostContext<'a> {
 			.into_iter()
 			.collect::<Vec<_>>();
 
-		let instance = self
-		.sandbox_store()
-		.instance(instance_id).map_err(|e| e.to_string())?;
+		let instance = self.sandbox_store().instance(instance_id).map_err(|e| e.to_string())?;
 
 		let dispatch_thunk =
 			self.sandbox_store().dispatch_thunk(instance_id).map_err(|e| e.to_string())?;
