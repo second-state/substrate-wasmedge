@@ -237,10 +237,12 @@ impl WasmInstance for WasmEdgeInstance {
 			} => {
 				data_segments_snapshot.apply(|offset, contents| {
 					util::write_memory_from(
-						instance_wrapper
-							.lock()
-							.map_err(|e| WasmError::Other(format!("failed to lock: {}", e,)))?
-							.memory_slice_mut(),
+						util::memory_slice_mut(
+							instance_wrapper
+								.lock()
+								.map_err(|e| WasmError::Other(format!("failed to lock: {}", e,)))?
+								.memory_mut(),
+						),
 						Pointer::new(offset),
 						contents,
 					)
@@ -547,7 +549,7 @@ fn inject_input_data(
 	let mut instance_wrapper_locked = instance_wrapper
 		.lock()
 		.map_err(|e| WasmError::Other(format!("failed to lock: {}", e,)))?;
-	let memory_slice = instance_wrapper_locked.memory_slice_mut();
+	let memory_slice = util::memory_slice_mut(instance_wrapper_locked.memory_mut());
 	let data_len = data.len() as WordSize;
 	let data_ptr = allocator.allocate(memory_slice, data_len)?;
 	util::write_memory_from(memory_slice, data_ptr, data)?;
@@ -561,10 +563,12 @@ fn extract_output_data(
 ) -> Result<Vec<u8>> {
 	let mut output = vec![0; output_len as usize];
 	util::read_memory_into(
-		instance_wrapper
-			.lock()
-			.map_err(|e| WasmError::Other(format!("failed to lock: {}", e,)))?
-			.memory_slice(),
+		util::memory_slice(
+			instance_wrapper
+				.lock()
+				.map_err(|e| WasmError::Other(format!("failed to lock: {}", e,)))?
+				.memory(),
+		),
 		Pointer::new(output_ptr),
 		&mut output,
 	)?;

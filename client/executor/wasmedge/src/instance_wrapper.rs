@@ -1,4 +1,4 @@
-use crate::host::HostState;
+use crate::{host::HostState, util};
 use sc_executor_common::{
 	error::{Backtrace, Error, MessageWithBacktrace, Result, WasmError},
 	wasm_runtime::InvokeMethod,
@@ -148,6 +148,9 @@ impl InstanceWrapper {
 		Ok(res[0].to_f64() as u64)
 	}
 
+	/// Reads `__heap_base: i32` global variable and returns it.
+	///
+	/// If it doesn't exist, not a global or of not i32 type returns an error.
 	pub fn extract_heap_base(&mut self) -> Result<u32> {
 		let heap_base = self
 			.instance()
@@ -163,6 +166,7 @@ impl InstanceWrapper {
 		Ok(heap_base.to_f32() as u32)
 	}
 
+	/// Get the value from a global with the given `name`.
 	pub fn get_global_val(&mut self, name: &str) -> Result<Option<Value>> {
 		let global = self
 			.instance()
@@ -179,12 +183,14 @@ impl InstanceWrapper {
 		}
 	}
 
+	/// Get a global with the given `name`.
 	pub fn get_global(&mut self, name: &str) -> Result<wasmedge_sys::Global> {
 		self.instance()
 			.get_global(name)
 			.map_err(|error| Error::Other(format!("failed to get WASM global: {}", error,)))
 	}
 
+	/// Returns the pointer to the first byte of the linear memory for this instance.
 	pub fn base_ptr(&self) -> *const u8 {
 		self.memory()
 			.data_pointer(0, 1)
@@ -211,24 +217,6 @@ impl InstanceWrapper {
 
 	pub(crate) fn vm(&self) -> Arc<Mutex<Vm>> {
 		Arc::clone(&self.vm)
-	}
-
-	pub fn memory_slice_mut(&mut self) -> &mut [u8] {
-		unsafe {
-			std::slice::from_raw_parts_mut(
-				self.base_ptr_mut(),
-				(self.memory().size() * 64 * 1024 * 8) as usize,
-			)
-		}
-	}
-
-	pub fn memory_slice(&self) -> &[u8] {
-		unsafe {
-			std::slice::from_raw_parts(
-				self.base_ptr(),
-				(self.memory().size() * 64 * 1024 * 8) as usize,
-			)
-		}
 	}
 
 	pub fn host_state(&self) -> Option<&HostState> {
@@ -340,7 +328,7 @@ impl InstanceWrapper {
 
 		// If we're on an unsupported OS or the memory couldn't have been
 		// decommited for some reason then just manually zero it out.
-		self.memory_slice_mut().fill(0);
+		util::memory_slice_mut(self.memory_mut()).fill(0);
 	}
 }
 

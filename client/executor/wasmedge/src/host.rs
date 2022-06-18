@@ -10,11 +10,18 @@ use sc_executor_common::{
 use sp_sandbox::env as sandbox_env;
 use sp_wasm_interface::{FunctionContext, MemoryId, Pointer, Sandbox, WordSize};
 use std::sync::{Arc, MutexGuard};
+use wasmedge_sys::FuncRef;
 
-struct SandboxStore(Option<Box<sandbox::Store<Arc<wasmedge_sys::FuncRef>>>>);
+// The sandbox store is inside of a Option<Box<..>>> so that we can temporarily borrow it.
+struct SandboxStore(Option<Box<sandbox::Store<Arc<FuncRef>>>>);
 
+// There are a bunch of `Rc`s within the sandbox store, however we only manipulate
+// those within one thread so this should be safe.
 unsafe impl Send for SandboxStore {}
 
+/// The state required to construct a HostContext context. The context only lasts for one host
+/// call, whereas the state is maintained for the duration of a Wasm runtime call, which may make
+/// many different host calls that must share state.
 pub struct HostState {
 	sandbox_store: SandboxStore,
 	allocator: Box<FreeingBumpHeapAllocator>,
@@ -22,6 +29,7 @@ pub struct HostState {
 }
 
 impl HostState {
+	/// Constructs a new `HostState`.
 	pub fn new(allocator: FreeingBumpHeapAllocator) -> Self {
 		HostState {
 			sandbox_store: SandboxStore(Some(Box::new(sandbox::Store::new(
@@ -32,6 +40,7 @@ impl HostState {
 		}
 	}
 
+	/// Takes the error message out of the host state, leaving a `None` in its place.
 	pub fn take_panic_message(&mut self) -> Option<String> {
 		self.panic_message.take()
 	}
@@ -41,6 +50,9 @@ impl HostState {
 	}
 }
 
+/// A `HostContext` implements `FunctionContext` for making host calls from a Wasmtime
+/// runtime. The `HostContext` exists only for the lifetime of the call and borrows state from
+/// a longer-living `HostState`.
 pub(crate) struct HostContext<'a> {
 	instance_wrapper: MutexGuard<'a, InstanceWrapper>,
 }
@@ -49,6 +61,7 @@ impl<'a> HostContext<'a> {
 	pub fn new(instance_wrapper: MutexGuard<'a, InstanceWrapper>) -> Self {
 		HostContext { instance_wrapper }
 	}
+
 	fn host_state(&self) -> &HostState {
 		self.instance_wrapper
 			.host_state()
@@ -61,7 +74,7 @@ impl<'a> HostContext<'a> {
 			.expect("host state is not empty when calling a function in wasm; qed")
 	}
 
-	fn sandbox_store(&self) -> &sandbox::Store<Arc<wasmedge_sys::FuncRef>> {
+	fn sandbox_store(&self) -> &sandbox::Store<Arc<FuncRef>> {
 		self.host_state()
 			.sandbox_store
 			.0
@@ -69,7 +82,7 @@ impl<'a> HostContext<'a> {
 			.expect("sandbox store is only empty when temporarily borrowed")
 	}
 
-	fn sandbox_store_mut(&mut self) -> &mut sandbox::Store<Arc<wasmedge_sys::FuncRef>> {
+	fn sandbox_store_mut(&mut self) -> &mut sandbox::Store<Arc<FuncRef>> {
 		self.host_state_mut()
 			.sandbox_store
 			.0
@@ -84,13 +97,17 @@ impl<'a> sp_wasm_interface::FunctionContext for HostContext<'a> {
 		address: Pointer<u8>,
 		dest: &mut [u8],
 	) -> sp_wasm_interface::Result<()> {
-		util::read_memory_into(self.instance_wrapper.memory_slice(), address, dest)
+		util::read_memory_into(util::memory_slice(self.instance_wrapper.memory()), address, dest)
 			.map_err(|e| e.to_string())
 	}
 
 	fn write_memory(&mut self, address: Pointer<u8>, data: &[u8]) -> sp_wasm_interface::Result<()> {
-		util::write_memory_from(self.instance_wrapper.memory_slice_mut(), address, data)
-			.map_err(|e| e.to_string())
+		util::write_memory_from(
+			util::memory_slice_mut(self.instance_wrapper.memory_mut()),
+			address,
+			data,
+		)
+		.map_err(|e| e.to_string())
 	}
 
 	fn allocate_memory(&mut self, size: WordSize) -> sp_wasm_interface::Result<Pointer<u8>> {
@@ -106,10 +123,7 @@ impl<'a> sp_wasm_interface::FunctionContext for HostContext<'a> {
 	}
 
 	fn register_panic_error_message(&mut self, message: &str) {
-		self.instance_wrapper
-			.host_state_mut()
-			.expect("host state is not empty when calling a function in wasm; qed")
-			.panic_message = Some(message.to_owned());
+		self.host_state_mut().panic_message = Some(message.to_owned());
 	}
 }
 
@@ -123,15 +137,19 @@ impl<'a> Sandbox for HostContext<'a> {
 	) -> sp_wasm_interface::Result<u32> {
 		let sandboxed_memory = self.sandbox_store().memory(memory_id).map_err(|e| e.to_string())?;
 
-		let len = buf_len as usize + offset as usize;
+		let len = buf_len as usize;
 
 		let buffer = match sandboxed_memory.read(Pointer::new(offset as u32), len) {
 			Err(_) => return Ok(sandbox_env::ERR_OUT_OF_BOUNDS),
 			Ok(buffer) => buffer,
 		};
 
-		if util::write_memory_from(self.instance_wrapper.memory_slice_mut(), buf_ptr, &buffer)
-			.is_err()
+		if util::write_memory_from(
+			util::memory_slice_mut(self.instance_wrapper.memory_mut()),
+			buf_ptr,
+			&buffer,
+		)
+		.is_err()
 		{
 			return Ok(sandbox_env::ERR_OUT_OF_BOUNDS);
 		}
@@ -150,7 +168,11 @@ impl<'a> Sandbox for HostContext<'a> {
 
 		let len = val_len as usize;
 
-		let buffer = match util::read_memory(self.instance_wrapper.memory_slice(), val_ptr, len) {
+		let buffer = match util::read_memory(
+			util::memory_slice(self.instance_wrapper.memory()),
+			val_ptr,
+			len,
+		) {
 			Err(_) => return Ok(sandbox_env::ERR_OUT_OF_BOUNDS),
 			Ok(buffer) => buffer,
 		};
@@ -181,6 +203,7 @@ impl<'a> Sandbox for HostContext<'a> {
 	) -> sp_wasm_interface::Result<u32> {
 		trace!(target: "sp-sandbox", "invoke, instance_idx={}", instance_id);
 
+		// Deserialize arguments and convert them into wasmi types.
 		let args = Vec::<sp_wasm_interface::Value>::decode(&mut args)
 			.map_err(|_| "Can't decode serialized arguments for the invocation")?
 			.into_iter()
@@ -201,6 +224,7 @@ impl<'a> Sandbox for HostContext<'a> {
 		match result {
 			Ok(None) => Ok(sandbox_env::ERR_OK),
 			Ok(Some(val)) => {
+				// Serialize return value and write it back into the memory.
 				sp_wasm_interface::ReturnValue::Value(val.into()).using_encoded(|val| {
 					if val.len() > return_val_len as usize {
 						return Err("Return value buffer is too small".into());
@@ -227,7 +251,8 @@ impl<'a> Sandbox for HostContext<'a> {
 		raw_env_def: &[u8],
 		state: u32,
 	) -> sp_wasm_interface::Result<u32> {
-		let dispatch_thunk = {
+		// Extract a dispatch thunk from the instance's table by the specified index.
+		let dispatch_thunk = Arc::new({
 			let table = self
 				.instance_wrapper
 				.instance()
@@ -238,10 +263,8 @@ impl<'a> Sandbox for HostContext<'a> {
 				.get_data(dispatch_thunk_id)
 				.map_err(|_| "dispatch_thunk_id is out of bounds")?
 				.func_ref()
-				.ok_or("dispatch_thunk_idx should be a funcref")?
-		};
-
-		let dispatch_thunk = Arc::new(dispatch_thunk);
+				.ok_or("dispatch_thunk_id should point to actual func")?
+		});
 
 		let guest_env = match sandbox::GuestEnvironment::decode(self.sandbox_store(), raw_env_def) {
 			Ok(guest_env) => guest_env,
@@ -255,6 +278,8 @@ impl<'a> Sandbox for HostContext<'a> {
 			.take()
 			.expect("sandbox store is only empty when borrowed");
 
+		// Catch any potential panics so that we can properly restore the sandbox store
+		// which we've destructively borrowed.
 		let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
 			store.instantiate(
 				wasm,
@@ -264,11 +289,7 @@ impl<'a> Sandbox for HostContext<'a> {
 			)
 		}));
 
-		self.instance_wrapper
-			.host_state_mut()
-			.expect("host state is not empty when calling a function in wasm; qed")
-			.sandbox_store
-			.0 = Some(store);
+		self.host_state_mut().sandbox_store.0 = Some(store);
 
 		let result = match result {
 			Ok(result) => result,
@@ -298,7 +319,7 @@ impl<'a> Sandbox for HostContext<'a> {
 
 struct SandboxContext<'a, 'b> {
 	host_context: &'a mut HostContext<'b>,
-	dispatch_thunk: Arc<wasmedge_sys::FuncRef>,
+	dispatch_thunk: Arc<FuncRef>,
 }
 
 impl<'a, 'b> sandbox::SandboxContext for SandboxContext<'a, 'b> {
