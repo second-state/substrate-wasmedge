@@ -59,9 +59,9 @@ impl InstanceWrapper {
 		data_ptr: Pointer<u8>,
 		data_len: WordSize,
 	) -> Result<u64> {
-		let data_ptr = wasmedge_sys::WasmValue::from_f32(u32::from(data_ptr) as f32);
-		let data_len = wasmedge_sys::WasmValue::from_f32(u32::from(data_len) as f32);
-		
+		let data_ptr = wasmedge_sys::WasmValue::from_i32(u32::from(data_ptr) as i32);
+		let data_len = wasmedge_sys::WasmValue::from_i32(u32::from(data_len) as i32);
+
 		let mut executor = wasmedge_sys::Executor::create(None, None).map_err(|e| {
 			WasmError::Other(format!("fail to create a WasmEdge Executor context: {}", e))
 		})?;
@@ -234,7 +234,7 @@ impl InstanceWrapper {
 		let memory_slice = unsafe {
 			std::slice::from_raw_parts_mut(
 				self.base_ptr_mut(),
-				(self.memory().size() * 64 * 1024 * 8) as usize,
+				(self.memory().size() * 64 * 1024) as usize,
 			)
 		};
 
@@ -252,7 +252,7 @@ impl InstanceWrapper {
 		let memory_slice = unsafe {
 			std::slice::from_raw_parts_mut(
 				self.base_ptr_mut(),
-				(self.memory().size() * 64 * 1024 * 8) as usize,
+				(self.memory().size() * 64 * 1024) as usize,
 			)
 		};
 
@@ -277,7 +277,7 @@ impl InstanceWrapper {
 
 				unsafe {
 					let ptr = self.base_ptr();
-					let len = (self.memory().size() * 64 * 1024 * 8) as usize;
+					let len = (self.memory().size() * 64 * 1024) as usize;
 
 					// Linux handles MADV_DONTNEED reliably. The result is that the given area
 					// is unmapped and will be zeroed on the next pagefault.
@@ -298,7 +298,7 @@ impl InstanceWrapper {
 
 				unsafe {
 					let ptr = self.base_ptr();
-					let len = (self.memory().size() * 64 * 1024 * 8) as usize;
+					let len = (self.memory().size() * 64 * 1024) as usize;
 
 					if libc::mmap(
 						ptr as _,
@@ -336,7 +336,7 @@ fn check_signature1(func: &wasmedge_sys::Function) -> Result<()> {
 	let params: Vec<ValType> = func_type.params_type_iter().collect();
 	let returns: Vec<ValType> = func_type.returns_type_iter().collect();
 
-	if params != vec![ValType::F32, ValType::F32] || returns != [ValType::F64] {
+	if params != vec![ValType::I32, ValType::I32] || returns != [ValType::I64] {
 		return Err(Error::Other(format!("Invalid signature for direct entry point")));
 	}
 	Ok(())
@@ -350,7 +350,7 @@ fn check_signature2(func_ref: &wasmedge_sys::FuncRef) -> Result<()> {
 	let params: Vec<ValType> = func_type.params_type_iter().collect();
 	let returns: Vec<ValType> = func_type.returns_type_iter().collect();
 
-	if params != vec![ValType::F32, ValType::F32] || returns != [ValType::F64] {
+	if params != vec![ValType::I32, ValType::I32] || returns != [ValType::I64] {
 		return Err(Error::Other(format!("Invalid signature for direct entry point")));
 	}
 	Ok(())
@@ -364,8 +364,25 @@ fn check_signature3(func_ref: &wasmedge_sys::FuncRef) -> Result<()> {
 	let params: Vec<ValType> = func_type.params_type_iter().collect();
 	let returns: Vec<ValType> = func_type.returns_type_iter().collect();
 
-	if params != vec![ValType::F32, ValType::F32, ValType::F32] || returns != [ValType::F64] {
+	if params != vec![ValType::I32, ValType::I32, ValType::I32] || returns != [ValType::I64] {
 		return Err(Error::Other(format!("Invalid signature for direct entry point")));
 	}
 	Ok(())
+}
+
+#[test]
+fn decommit_works() {
+	let loader = wasmedge_sys::Loader::create(None).unwrap();
+	let code = wat::parse_str("(module (memory (export \"memory\") 1 4))").unwrap();
+	let module = loader.from_bytes(&code).unwrap();
+	let mut vm = Vm::create(None, None).unwrap();
+	vm.load_wasm_from_module(&module).unwrap();
+	let wrapper = InstanceWrapper::new(Arc::new(Mutex::new(vm)));
+	wrapper.lock().unwrap().instantiate().unwrap();
+	unsafe {
+		*(wrapper.lock().unwrap().base_ptr_mut()) = 42;
+	}
+	assert_eq!(unsafe { *(wrapper.lock().unwrap().base_ptr()) }, 42);
+	wrapper.lock().unwrap().decommit();
+	assert_eq!(unsafe { *(wrapper.lock().unwrap().base_ptr()) }, 0);
 }

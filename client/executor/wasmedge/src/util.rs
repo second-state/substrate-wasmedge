@@ -63,7 +63,7 @@ pub(crate) fn memory_slice(memory: &wasmedge_sys::Memory) -> &[u8] {
 		.data_pointer(0, 1)
 		.expect("failed to returns the const data pointer to the Memory.");
 
-	unsafe { std::slice::from_raw_parts(base_ptr, (memory.size() * 64 * 1024 * 8) as usize) }
+	unsafe { std::slice::from_raw_parts(base_ptr, (memory.size() * 64 * 1024) as usize) }
 }
 
 pub(crate) fn memory_slice_mut(memory: &mut wasmedge_sys::Memory) -> &mut [u8] {
@@ -71,7 +71,5 @@ pub(crate) fn memory_slice_mut(memory: &mut wasmedge_sys::Memory) -> &mut [u8] {
 		.data_pointer_mut(0, 1)
 		.expect("failed to returns the mut data pointer to the Memory.");
 
-	unsafe {
-		std::slice::from_raw_parts_mut(base_ptr_mut, (memory.size() * 64 * 1024 * 8) as usize)
-	}
+	unsafe { std::slice::from_raw_parts_mut(base_ptr_mut, (memory.size() * 64 * 1024) as usize) }
 }

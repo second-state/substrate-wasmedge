@@ -10,7 +10,7 @@ use sc_executor_common::{
 use sp_runtime_interface::unpack_ptr_and_len;
 use sp_wasm_interface::{Function, HostFunctions, Pointer, Value, WordSize};
 use std::{
-	fs::{self, File},
+	fs::File,
 	io::Write,
 	path::Path,
 	sync::{Arc, Mutex},
@@ -370,9 +370,15 @@ pub fn prepare_runtime_artifact(
 	compiled_artifact_path: &Path,
 ) -> std::result::Result<(), WasmError> {
 	let blob = prepare_blob_for_compilation(blob, semantics)?;
-	let path_temp = Path::new("temp.wasm");
+	let dir = tempfile::tempdir().map_err(|e| {
+		WasmError::Other(format!(
+			"cannot create a directory inside of `std::env::temp_dir()` {}",
+			e
+		))
+	})?;
+	let path_temp = dir.path().join("temp.wasm");
 
-	File::create(path_temp)
+	File::create(path_temp.clone())
 		.map_err(|e| {
 			WasmError::Other(format!("cannot create the file to store runtime artifact: {}", e))
 		})?
@@ -387,9 +393,6 @@ pub fn prepare_runtime_artifact(
 		})?
 		.compile(path_temp, compiled_artifact_path)
 		.map_err(|e| WasmError::Other(format!("fail to compile the input WASM file: {}", e)))?;
-
-	fs::remove_file(path_temp)
-		.map_err(|e| WasmError::Other(format!("cannot delete the temporary file: {}", e)))?;
 
 	Ok(())
 }
