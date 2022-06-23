@@ -50,6 +50,10 @@ pub enum WasmExecutionMethod {
 		/// The instantiation strategy to use.
 		instantiation_strategy: sc_executor_wasmtime::InstantiationStrategy,
 	},
+	
+	/// Uses the WasmEdge compiled runtime.
+	#[cfg(feature = "wasmedge")]
+	CompiledWasmedge,
 }
 
 impl Default for WasmExecutionMethod {
@@ -333,6 +337,24 @@ where
 				},
 			)
 			.map(|runtime| -> Arc<dyn WasmModule> { Arc::new(runtime) }),
+		#[cfg(feature = "wasmedge")]
+		WasmExecutionMethod::CompiledWasmedge => {
+			let _ = cache_path;
+
+			sc_executor_wasmedge::create_runtime::<H>(
+				blob,
+				sc_executor_wasmedge::Config {
+					allow_missing_func_imports,
+					semantics: sc_executor_wasmedge::Semantics {
+						extra_heap_pages: heap_pages,
+						deterministic_stack_limit: None,
+						fast_instance_reuse: true,
+						max_memory_size: None,
+					},
+				},
+			)
+			.map(|runtime| -> Arc<dyn WasmModule> { Arc::new(runtime) })
+		}
 	}
 }
 

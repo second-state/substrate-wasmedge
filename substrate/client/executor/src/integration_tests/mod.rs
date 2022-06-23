@@ -53,6 +53,12 @@ macro_rules! test_wasm_execution {
 			}
 
 			#[test]
+			#[cfg(feature = "wasmedge")]
+			fn [<$method_name _compiled_wasmedge>]() {
+				$method_name(WasmExecutionMethod::CompiledWasmedge);
+			}
+
+			#[test]
 			#[cfg(feature = "wasmtime")]
 			fn [<$method_name _compiled_recreate_instance_cow>]() {
 				$method_name(WasmExecutionMethod::Compiled {
@@ -255,7 +261,9 @@ fn call_not_existing_function(wasm_method: WasmExecutionMethod) {
 			let expected = match wasm_method {
 				WasmExecutionMethod::Interpreted => "Trap: Host(Other(\"Function `missing_external` is only a stub. Calling a stub is not allowed.\"))",
 				#[cfg(feature = "wasmtime")]
-				WasmExecutionMethod::Compiled { .. } => "call to a missing function env:missing_external"
+				WasmExecutionMethod::Compiled { .. } => "call to a missing function env:missing_external",
+				#[cfg(feature = "wasmedge")]
+				WasmExecutionMethod::CompiledWasmedge => "...",
 			};
 			assert_eq!(error.message, expected);
 		},
@@ -275,7 +283,9 @@ fn call_yet_another_not_existing_function(wasm_method: WasmExecutionMethod) {
 			let expected = match wasm_method {
 				WasmExecutionMethod::Interpreted => "Trap: Host(Other(\"Function `yet_another_missing_external` is only a stub. Calling a stub is not allowed.\"))",
 				#[cfg(feature = "wasmtime")]
-				WasmExecutionMethod::Compiled { .. } => "call to a missing function env:yet_another_missing_external"
+				WasmExecutionMethod::Compiled { .. } => "call to a missing function env:yet_another_missing_external",
+				#[cfg(feature = "wasmedge")]
+				WasmExecutionMethod::CompiledWasmedge => "...",
 			};
 			assert_eq!(error.message, expected);
 		},
@@ -912,6 +922,8 @@ fn unreachable_intrinsic(wasm_method: WasmExecutionMethod) {
 				WasmExecutionMethod::Interpreted => "Trap: Unreachable",
 				#[cfg(feature = "wasmtime")]
 				WasmExecutionMethod::Compiled { .. } => "wasm trap: wasm `unreachable` instruction executed",
+				#[cfg(feature = "wasmedge")]
+				WasmExecutionMethod::CompiledWasmedge => "...",
 			};
 			assert_eq!(error.message, expected);
 		},
