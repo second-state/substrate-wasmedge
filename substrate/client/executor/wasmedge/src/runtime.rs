@@ -408,6 +408,7 @@ unsafe fn do_create_runtime<H>(
 where
 	H: HostFunctions,
 {
+	println!("vincent debug: do_create_runtime of wasmedge");
 	let loader = wasmedge_sys::Loader::create(common_config(&config.semantics)?).map_err(|e| {
 		WasmError::Other(format!("fail to create a WasmEdge Loader context: {}", e))
 	})?;

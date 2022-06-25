@@ -55,8 +55,10 @@ pub const DEFAULT_WASMTIME_INSTANTIATION_STRATEGY: WasmtimeInstantiationStrategy
 pub enum WasmExecutionMethod {
 	/// Uses an interpreter.
 	Interpreted,
-	/// Uses a compiled runtime.
+	/// Uses wasmtime as a compiled runtime.
 	Compiled,
+	/// Uses a compiled wasmedge runtime.
+	CompiledWasmedge,
 }
 
 impl std::fmt::Display for WasmExecutionMethod {
@@ -64,6 +66,7 @@ impl std::fmt::Display for WasmExecutionMethod {
 		match self {
 			Self::Interpreted => write!(f, "Interpreted"),
 			Self::Compiled => write!(f, "Compiled"),
+			Self::CompiledWasmedge => write!(f, "CompiledWasmedge"),
 		}
 	}
 }
@@ -83,6 +86,15 @@ impl std::str::FromStr for WasmExecutionMethod {
 			{
 				Err("`Compiled` variant requires the `wasmtime` feature to be enabled".into())
 			}
+		} else if s.eq_ignore_ascii_case("compiledWasmedge") {
+			#[cfg(feature = "wasmedge")]
+			{
+				Ok(Self::CompiledWasmedge)
+			}
+			#[cfg(not(feature = "wasmedge"))]
+			{
+				Err("`Compiled` variant requires the `wasmedge` feature to be enabled".into())
+			}
 		} else {
 			Err(format!("Unknown variant `{}`, known variants: {:?}", s, Self::variants()))
 		}
@@ -92,7 +104,7 @@ impl std::str::FromStr for WasmExecutionMethod {
 impl WasmExecutionMethod {
 	/// Returns all the variants of this enum to be shown in the cli.
 	pub fn variants() -> &'static [&'static str] {
-		let variants = &["interpreted-i-know-what-i-do", "compiled"];
+		let variants = &["interpreted-i-know-what-i-do", "compiled", "compiledWasmedge"];
 		if cfg!(feature = "wasmtime") {
 			variants
 		} else {
@@ -124,6 +136,8 @@ pub fn execution_method_from_cli(
 					sc_service::config::WasmtimeInstantiationStrategy::LegacyInstanceReuse,
 			},
 		},
+		#[cfg(feature = "wasmedge")]
+		WasmExecutionMethod::CompiledWasmedge => sc_service::config::WasmExecutionMethod::CompiledWasmedge,
 		#[cfg(not(feature = "wasmtime"))]
 		WasmExecutionMethod::Compiled => panic!(
 			"Substrate must be compiled with \"wasmtime\" feature for compiled Wasm execution"
