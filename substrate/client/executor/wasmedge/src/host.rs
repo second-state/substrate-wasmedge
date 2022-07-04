@@ -9,7 +9,7 @@ use sc_executor_common::{
 };
 use sp_sandbox::env as sandbox_env;
 use sp_wasm_interface::{FunctionContext, MemoryId, Pointer, Sandbox, WordSize};
-use std::sync::{Arc, MutexGuard};
+use std::sync::Arc;
 use wasmedge_sys::FuncRef;
 
 // The sandbox store is inside of a Option<Box<..>>> so that we can temporarily borrow it.
@@ -19,7 +19,7 @@ struct SandboxStore(Option<Box<sandbox::Store<Arc<FuncRef>>>>);
 // those within one thread so this should be safe.
 unsafe impl Send for SandboxStore {}
 
-/// The state required to construct a HostContext context. The context only lasts for one host
+/// The state required to construct a InstanceWrapper context. The context only lasts for one host
 /// call, whereas the state is maintained for the duration of a Wasm runtime call, which may make
 /// many different host calls that must share state.
 pub struct HostState {
@@ -50,30 +50,8 @@ impl HostState {
 	}
 }
 
-/// A `HostContext` implements `FunctionContext` for making host calls from a Wasmtime
-/// runtime. The `HostContext` exists only for the lifetime of the call and borrows state from
-/// a longer-living `HostState`.
-pub(crate) struct HostContext<'a> {
-	instance_wrapper: MutexGuard<'a, InstanceWrapper>,
-}
 
-impl<'a> HostContext<'a> {
-	pub fn new(instance_wrapper: MutexGuard<'a, InstanceWrapper>) -> Self {
-		HostContext { instance_wrapper }
-	}
-
-	fn host_state(&self) -> &HostState {
-		self.instance_wrapper
-			.host_state()
-			.expect("host state is not empty when calling a function in wasm; qed")
-	}
-
-	fn host_state_mut(&mut self) -> &mut HostState {
-		self.instance_wrapper
-			.host_state_mut()
-			.expect("host state is not empty when calling a function in wasm; qed")
-	}
-
+impl InstanceWrapper {
 	fn sandbox_store(&self) -> &sandbox::Store<Arc<FuncRef>> {
 		self.host_state()
 			.sandbox_store
@@ -91,19 +69,19 @@ impl<'a> HostContext<'a> {
 	}
 }
 
-impl<'a> sp_wasm_interface::FunctionContext for HostContext<'a> {
+impl sp_wasm_interface::FunctionContext for InstanceWrapper{
 	fn read_memory_into(
 		&self,
 		address: Pointer<u8>,
 		dest: &mut [u8],
 	) -> sp_wasm_interface::Result<()> {
-		util::read_memory_into(util::memory_slice(self.instance_wrapper.memory()), address, dest)
+		util::read_memory_into(util::memory_slice(self.memory()), address, dest)
 			.map_err(|e| e.to_string())
 	}
 
 	fn write_memory(&mut self, address: Pointer<u8>, data: &[u8]) -> sp_wasm_interface::Result<()> {
 		util::write_memory_from(
-			util::memory_slice_mut(self.instance_wrapper.memory_mut()),
+			util::memory_slice_mut(self.memory_mut()),
 			address,
 			data,
 		)
@@ -111,11 +89,31 @@ impl<'a> sp_wasm_interface::FunctionContext for HostContext<'a> {
 	}
 
 	fn allocate_memory(&mut self, size: WordSize) -> sp_wasm_interface::Result<Pointer<u8>> {
-		self.instance_wrapper.allocate_memory(size)
+		let memory_slice = unsafe {
+			std::slice::from_raw_parts_mut(
+				self.base_ptr_mut(),
+				(self.memory().size() * 64 * 1024) as usize,
+			)
+		};
+
+		self.host_state_mut()
+			.allocator()
+			.allocate(memory_slice, size)
+			.map_err(|e| e.to_string())
 	}
 
 	fn deallocate_memory(&mut self, ptr: Pointer<u8>) -> sp_wasm_interface::Result<()> {
-		self.instance_wrapper.deallocate_memory(ptr)
+		let memory_slice = unsafe {
+			std::slice::from_raw_parts_mut(
+				self.base_ptr_mut(),
+				(self.memory().size() * 64 * 1024) as usize,
+			)
+		};
+
+		self.host_state_mut()
+			.allocator()
+			.deallocate(memory_slice, ptr)
+			.map_err(|e| e.to_string())
 	}
 
 	fn sandbox(&mut self) -> &mut dyn Sandbox {
@@ -127,7 +125,7 @@ impl<'a> sp_wasm_interface::FunctionContext for HostContext<'a> {
 	}
 }
 
-impl<'a> Sandbox for HostContext<'a> {
+impl Sandbox for InstanceWrapper {
 	fn memory_get(
 		&mut self,
 		memory_id: MemoryId,
@@ -145,7 +143,7 @@ impl<'a> Sandbox for HostContext<'a> {
 		};
 
 		if util::write_memory_from(
-			util::memory_slice_mut(self.instance_wrapper.memory_mut()),
+			util::memory_slice_mut(self.memory_mut()),
 			buf_ptr,
 			&buffer,
 		)
@@ -169,7 +167,7 @@ impl<'a> Sandbox for HostContext<'a> {
 		let len = val_len as usize;
 
 		let buffer = match util::read_memory(
-			util::memory_slice(self.instance_wrapper.memory()),
+			util::memory_slice(self.memory()),
 			val_ptr,
 			len,
 		) {
@@ -229,7 +227,7 @@ impl<'a> Sandbox for HostContext<'a> {
 					if val.len() > return_val_len as usize {
 						return Err("Return value buffer is too small".into());
 					}
-					<HostContext as FunctionContext>::write_memory(self, return_val, val)
+					<InstanceWrapper as FunctionContext>::write_memory(self, return_val, val)
 						.map_err(|_| "can't write return value")?;
 					Ok(sandbox_env::ERR_OK)
 				})
@@ -254,7 +252,6 @@ impl<'a> Sandbox for HostContext<'a> {
 		// Extract a dispatch thunk from the instance's table by the specified index.
 		let dispatch_thunk = Arc::new({
 			let table = self
-				.instance_wrapper
 				.instance()
 				.get_table("__indirect_function_table")
 				.map_err(|_| "Runtime doesn't have a table; sandbox is unavailable")?;
@@ -317,12 +314,12 @@ impl<'a> Sandbox for HostContext<'a> {
 	}
 }
 
-struct SandboxContext<'a, 'b> {
-	host_context: &'a mut HostContext<'b>,
+struct SandboxContext<'a> {
+	host_context: &'a mut InstanceWrapper,
 	dispatch_thunk: Arc<FuncRef>,
 }
 
-impl<'a, 'b> sandbox::SandboxContext for SandboxContext<'a, 'b> {
+impl<'a> sandbox::SandboxContext for SandboxContext<'a> {
 	fn invoke(
 		&mut self,
 		invoke_args_ptr: Pointer<u8>,

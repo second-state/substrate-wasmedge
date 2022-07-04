@@ -125,10 +125,10 @@ pub struct WasmEdgeRuntime {
 
 impl WasmModule for WasmEdgeRuntime {
 	fn new_instance(&self) -> Result<Box<dyn WasmInstance>> {
-		let instance_wrapper = InstanceWrapper::new(Arc::clone(&self.vm));
+		let mut instance_wrapper = Box::new(InstanceWrapper::new(Arc::clone(&self.vm)));
 
 		crate::imports::prepare_imports(
-			Arc::clone(&instance_wrapper),
+			&mut instance_wrapper,
 			&self.module,
 			&self.host_functions,
 			self.config.allow_missing_func_imports,
@@ -136,14 +136,8 @@ impl WasmModule for WasmEdgeRuntime {
 		.map_err(|e| WasmError::Other(format!("fail to register imports: {}", e)))?;
 
 		let strategy = if let Some(ref snapshot_data) = self.snapshot_data {
-			instance_wrapper
-				.lock()
-				.map_err(|e| WasmError::Other(format!("failed to lock: {}", e,)))?
-				.instantiate()?;
-			let heap_base = instance_wrapper
-				.lock()
-				.map_err(|e| WasmError::Other(format!("failed to lock: {}", e,)))?
-				.extract_heap_base()?;
+			instance_wrapper.instantiate()?;
+			let heap_base = instance_wrapper.extract_heap_base()?;
 
 			// This function panics if the instance was created from a runtime blob different from
 			// which the mutable globals were collected. Here, it is easy to see that there is only
@@ -151,7 +145,7 @@ impl WasmModule for WasmEdgeRuntime {
 			// instance and collecting the mutable globals.
 			let globals_snapshot = GlobalsSnapshot::take(
 				&snapshot_data.mutable_globals,
-				&mut InstanceGlobals { instance: Arc::clone(&instance_wrapper) },
+				&mut InstanceGlobals { instance: &mut instance_wrapper },
 			);
 
 			Strategy::FastInstanceReuse {
@@ -161,25 +155,23 @@ impl WasmModule for WasmEdgeRuntime {
 				heap_base,
 			}
 		} else {
-			Strategy::RecreateInstance(InstanceCreator {
-				instance_wrapper: Arc::clone(&instance_wrapper),
-			})
+			Strategy::RecreateInstance(InstanceCreator { instance_wrapper })
 		};
 
 		Ok(Box::new(WasmEdgeInstance { strategy }))
 	}
 }
 
-struct InstanceGlobals {
-	instance: Arc<Mutex<InstanceWrapper>>,
+struct InstanceGlobals<'a> {
+	instance: &'a mut InstanceWrapper,
 }
 
-impl runtime_blob::InstanceGlobals for InstanceGlobals {
+impl<'a> runtime_blob::InstanceGlobals for InstanceGlobals<'a> {
 	type Global = Arc<Mutex<wasmedge_sys::Global>>;
 
 	fn get_global(&mut self, export_name: &str) -> Self::Global {
 		Arc::new(Mutex::new(
-			self.instance.lock().expect("failed to lock").get_global(export_name).expect(
+			self.instance.get_global(export_name).expect(
 				"get_global is guaranteed to be called with an export name of a global; qed",
 			),
 		))
@@ -204,7 +196,7 @@ pub struct WasmEdgeInstance {
 
 enum Strategy {
 	FastInstanceReuse {
-		instance_wrapper: Arc<Mutex<InstanceWrapper>>,
+		instance_wrapper: Box<InstanceWrapper>,
 		globals_snapshot: GlobalsSnapshot<Arc<Mutex<wasmedge_sys::Global>>>,
 		data_segments_snapshot: Arc<DataSegmentsSnapshot>,
 		heap_base: u32,
@@ -213,16 +205,12 @@ enum Strategy {
 }
 
 struct InstanceCreator {
-	instance_wrapper: Arc<Mutex<InstanceWrapper>>,
+	instance_wrapper: Box<InstanceWrapper>,
 }
 
 impl InstanceCreator {
 	fn instantiate(&mut self) -> Result<()> {
-		Ok(self
-			.instance_wrapper
-			.lock()
-			.map_err(|e| WasmError::Other(format!("failed to lock: {}", e,)))?
-			.instantiate()?)
+		Ok(self.instance_wrapper.instantiate()?)
 	}
 }
 
@@ -237,57 +225,42 @@ impl WasmInstance for WasmEdgeInstance {
 			} => {
 				data_segments_snapshot.apply(|offset, contents| {
 					util::write_memory_from(
-						util::memory_slice_mut(
-							instance_wrapper
-								.lock()
-								.map_err(|e| WasmError::Other(format!("failed to lock: {}", e,)))?
-								.memory_mut(),
-						),
+						util::memory_slice_mut(instance_wrapper.memory_mut()),
 						Pointer::new(offset),
 						contents,
 					)
 				})?;
 
-				globals_snapshot
-					.apply(&mut InstanceGlobals { instance: Arc::clone(instance_wrapper) });
+				globals_snapshot.apply(&mut InstanceGlobals { instance: instance_wrapper });
 				let allocator = FreeingBumpHeapAllocator::new(*heap_base);
 
 				let result = perform_call(data, instance_wrapper, method, allocator);
 
 				// Signal to the OS that we are done with the linear memory and that it can be
 				// reclaimed.
-				instance_wrapper
-					.lock()
-					.map_err(|e| WasmError::Other(format!("failed to lock: {}", e,)))?
-					.decommit();
+				instance_wrapper.decommit();
 
 				result
 			},
 			Strategy::RecreateInstance(instance_creator) => {
 				instance_creator.instantiate()?;
-				let heap_base =
-					instance_creator.instance_wrapper.lock().unwrap().extract_heap_base()?;
+				let heap_base = instance_creator.instance_wrapper.extract_heap_base()?;
 
 				let allocator = FreeingBumpHeapAllocator::new(heap_base);
 
-				perform_call(data, &instance_creator.instance_wrapper, method, allocator)
+				perform_call(data, &mut instance_creator.instance_wrapper, method, allocator)
 			},
 		}
 	}
 
 	fn get_global_const(&mut self, name: &str) -> Result<Option<Value>> {
 		match &mut self.strategy {
-			Strategy::FastInstanceReuse { instance_wrapper, .. } => instance_wrapper
-				.lock()
-				.map_err(|e| WasmError::Other(format!("failed to lock: {}", e,)))?
-				.get_global_val(name),
+			Strategy::FastInstanceReuse { instance_wrapper, .. } => {
+				instance_wrapper.get_global_val(name)
+			},
 			Strategy::RecreateInstance(ref mut instance_creator) => {
 				instance_creator.instantiate()?;
-				instance_creator
-					.instance_wrapper
-					.lock()
-					.map_err(|e| WasmError::Other(format!("failed to lock: {}", e,)))?
-					.get_global_val(name)
+				instance_creator.instance_wrapper.get_global_val(name)
 			},
 		}
 	}
@@ -300,7 +273,7 @@ impl WasmInstance for WasmEdgeInstance {
 				None
 			},
 			Strategy::FastInstanceReuse { instance_wrapper, .. } => {
-				Some(instance_wrapper.lock().expect("failed to lock").base_ptr())
+				Some(instance_wrapper.base_ptr())
 			},
 		}
 	}
@@ -513,7 +486,7 @@ fn prepare_blob_for_compilation(
 
 fn perform_call(
 	data: &[u8],
-	instance_wrapper: &Arc<Mutex<InstanceWrapper>>,
+	instance_wrapper: &mut InstanceWrapper,
 	method: InvokeMethod,
 	mut allocator: FreeingBumpHeapAllocator,
 ) -> Result<Vec<u8>> {
@@ -522,22 +495,11 @@ fn perform_call(
 	let host_state = HostState::new(allocator);
 
 	// Set the host state before calling into wasm.
-	instance_wrapper
-		.lock()
-		.map_err(|e| WasmError::Other(format!("failed to lock: {}", e,)))?
-		.set_host_state(Some(host_state));
-
-	let ret = instance_wrapper
-		.lock()
-		.map_err(|e| WasmError::Other(format!("failed to lock: {}", e,)))?
-		.call(method, data_ptr, data_len)
-		.map(unpack_ptr_and_len);
+	instance_wrapper.set_host_state(Some(host_state));
+	let ret = instance_wrapper.call(method, data_ptr, data_len).map(unpack_ptr_and_len);
 
 	// Reset the host state
-	instance_wrapper
-		.lock()
-		.map_err(|e| WasmError::Other(format!("failed to lock: {}", e,)))?
-		.set_host_state(None);
+	instance_wrapper.set_host_state(None);
 
 	let (output_ptr, output_len) = ret?;
 	let output = extract_output_data(instance_wrapper, output_ptr, output_len)?;
@@ -546,14 +508,11 @@ fn perform_call(
 }
 
 fn inject_input_data(
-	instance_wrapper: &Arc<Mutex<InstanceWrapper>>,
+	instance_wrapper: &mut InstanceWrapper,
 	allocator: &mut FreeingBumpHeapAllocator,
 	data: &[u8],
 ) -> Result<(Pointer<u8>, WordSize)> {
-	let mut instance_wrapper_locked = instance_wrapper
-		.lock()
-		.map_err(|e| WasmError::Other(format!("failed to lock: {}", e,)))?;
-	let memory_slice = util::memory_slice_mut(instance_wrapper_locked.memory_mut());
+	let memory_slice = util::memory_slice_mut(instance_wrapper.memory_mut());
 	let data_len = data.len() as WordSize;
 	let data_ptr = allocator.allocate(memory_slice, data_len)?;
 	util::write_memory_from(memory_slice, data_ptr, data)?;
@@ -561,18 +520,13 @@ fn inject_input_data(
 }
 
 fn extract_output_data(
-	instance_wrapper: &Arc<Mutex<InstanceWrapper>>,
+	instance_wrapper: &InstanceWrapper,
 	output_ptr: u32,
 	output_len: u32,
 ) -> Result<Vec<u8>> {
 	let mut output = vec![0; output_len as usize];
 	util::read_memory_into(
-		util::memory_slice(
-			instance_wrapper
-				.lock()
-				.map_err(|e| WasmError::Other(format!("failed to lock: {}", e,)))?
-				.memory(),
-		),
+		util::memory_slice(instance_wrapper.memory()),
 		Pointer::new(output_ptr),
 		&mut output,
 	)?;

@@ -308,7 +308,6 @@ fn test_max_memory_pages(import_memory: bool, precompile_runtime: bool) {
 	.unwrap();
 }
 
-
 // This test takes quite a while to execute in a debug build (over 6 minutes on a TR 3970x)
 // so it's ignored by default unless it was compiled with `--release`.
 #[cfg_attr(build_type = "debug", ignore)]
@@ -316,7 +315,7 @@ fn test_max_memory_pages(import_memory: bool, precompile_runtime: bool) {
 fn test_instances_without_reuse_are_not_leaked() {
 	let runtime = crate::create_runtime::<HostFunctions>(
 		RuntimeBlob::uncompress_if_needed(wasm_binary_unwrap()).unwrap(),
-        crate::Config {
+		crate::Config {
 			allow_missing_func_imports: true,
 			semantics: crate::Semantics {
 				fast_instance_reuse: false,

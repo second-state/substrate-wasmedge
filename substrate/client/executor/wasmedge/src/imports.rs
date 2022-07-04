@@ -1,4 +1,4 @@
-use crate::{host::HostContext, instance_wrapper::InstanceWrapper, util};
+use crate::{instance_wrapper::InstanceWrapper, util};
 use sc_executor_common::error::WasmError;
 use sp_wasm_interface::{Function, ValueType};
 use std::{
@@ -7,10 +7,13 @@ use std::{
 };
 use wasmedge_sys::ImportInstance;
 
+struct Wrapper(*mut InstanceWrapper);
+unsafe impl Send for Wrapper{}
+
 /// Goes over all imports of a module and register host functions into Vm.
 /// Returns an error if there are imports that cannot be satisfied.
 pub(crate) fn prepare_imports(
-	instance_wrapper: Arc<Mutex<InstanceWrapper>>,
+	instance_wrapper: &mut InstanceWrapper,
 	module: &wasmedge_sys::Module,
 	host_functions: &Vec<&'static dyn Function>,
 	allow_missing_func_imports: bool,
@@ -71,15 +74,15 @@ pub(crate) fn prepare_imports(
 				)));
 			}
 
-			let instance_wrapper_clone = Arc::clone(&instance_wrapper);
+			// let instance_wrapper_clone = Arc::clone(&instance_wrapper);
+			let s = Arc::new(Mutex::new(Wrapper(instance_wrapper as *mut InstanceWrapper)));
 			let returns_len = host_func_ty.returns_len();
-			println!("=================================================");
 			let function_static = move |inputs: Vec<wasmedge_sys::WasmValue>| -> std::result::Result<
 				Vec<wasmedge_sys::WasmValue>,
 				u8,
 			> {
+				println!("{}", host_func.name());
 				let unwind_result = {
-					let mut host_ctx = HostContext::new(instance_wrapper_clone.lock().unwrap());
 
 					// `from_wasmedge_val` panics if it encounters a value that doesn't fit into the values
 					// available in substrate.
@@ -89,15 +92,17 @@ pub(crate) fn prepare_imports(
 					let mut params = inputs.iter().cloned().map(util::from_wasmedge_val);
 
 					std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-						host_func.execute(&mut host_ctx, &mut params)
+						unsafe {
+							host_func.execute(&mut *(s.lock().unwrap().0), &mut params)
+						}
 					}))
 				};
-
+				println!("leave");
 				let execution_result = match unwind_result {
 					Ok(execution_result) => execution_result,
 					Err(_) => return Err(0),
 				};
-
+				
 				match execution_result {
 					Ok(Some(ret_val)) => {
 						debug_assert!(
@@ -170,8 +175,6 @@ pub(crate) fn prepare_imports(
 	}
 
 	instance_wrapper
-		.lock()
-		.map_err(|e| WasmError::Other(format!("failed to lock: {}", e,)))?
 		.vm()
 		.lock()
 		.map_err(|e| WasmError::Other(format!("failed to lock: {}", e,)))?

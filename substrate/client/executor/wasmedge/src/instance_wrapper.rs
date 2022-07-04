@@ -16,8 +16,8 @@ pub struct InstanceWrapper {
 }
 
 impl InstanceWrapper {
-	pub fn new(vm: Arc<Mutex<Vm>>) -> Arc<Mutex<Self>> {
-		Arc::new(Mutex::new(InstanceWrapper { vm, instance: None, memory: None, host_state: None }))
+	pub fn new(vm: Arc<Mutex<Vm>>) -> Self {
+		InstanceWrapper { vm, instance: None, memory: None, host_state: None }
 	}
 
 	pub fn instantiate(&mut self) -> Result<()> {
@@ -114,8 +114,7 @@ impl InstanceWrapper {
 		}
 		.map_err(|trap| {
 			let host_state = self
-				.host_state_mut()
-				.expect("host state cannot be empty while a function is being called; qed");
+				.host_state_mut();
 
 			// The logic to print out a backtrace is somewhat complicated,
 			// so let's get wasmtime to print it out for us.
@@ -140,8 +139,7 @@ impl InstanceWrapper {
 				})
 			}
 		})?;
-
-		Ok(res[0].to_f64() as u64)
+		Ok(res[0].to_i64() as u64)
 	}
 
 	/// Reads `__heap_base: i32` global variable and returns it.
@@ -215,52 +213,16 @@ impl InstanceWrapper {
 		Arc::clone(&self.vm)
 	}
 
-	pub fn host_state(&self) -> Option<&HostState> {
-		self.host_state.as_ref()
+	pub fn host_state(&self) -> &HostState {
+		self.host_state.as_ref().expect("host state is not empty when calling a function in wasm; qed")
 	}
 
-	pub fn host_state_mut(&mut self) -> Option<&mut HostState> {
-		self.host_state.as_mut()
+	pub fn host_state_mut(&mut self) -> &mut HostState {
+		self.host_state.as_mut().expect("host state is not empty when calling a function in wasm; qed")
 	}
 
 	pub fn set_host_state(&mut self, host_state: Option<HostState>) {
 		self.host_state = host_state;
-	}
-
-	pub fn allocate_memory(
-		&mut self,
-		size: sp_wasm_interface::WordSize,
-	) -> sp_wasm_interface::Result<Pointer<u8>> {
-		let memory_slice = unsafe {
-			std::slice::from_raw_parts_mut(
-				self.base_ptr_mut(),
-				(self.memory().size() * 64 * 1024) as usize,
-			)
-		};
-
-		self.host_state_mut()
-			.expect("host state is not empty when calling a function in wasm; qed")
-			.allocator()
-			.allocate(memory_slice, size)
-			.map_err(|e| e.to_string())
-	}
-
-	pub fn deallocate_memory(
-		&mut self,
-		ptr: sp_wasm_interface::Pointer<u8>,
-	) -> sp_wasm_interface::Result<()> {
-		let memory_slice = unsafe {
-			std::slice::from_raw_parts_mut(
-				self.base_ptr_mut(),
-				(self.memory().size() * 64 * 1024) as usize,
-			)
-		};
-
-		self.host_state_mut()
-			.expect("host state is not empty when calling a function in wasm; qed")
-			.allocator()
-			.deallocate(memory_slice, ptr)
-			.map_err(|e| e.to_string())
 	}
 
 	/// If possible removes physical backing from the allocated linear memory which
@@ -377,12 +339,12 @@ fn decommit_works() {
 	let module = loader.from_bytes(&code).unwrap();
 	let mut vm = Vm::create(None, None).unwrap();
 	vm.load_wasm_from_module(&module).unwrap();
-	let wrapper = InstanceWrapper::new(Arc::new(Mutex::new(vm)));
-	wrapper.lock().unwrap().instantiate().unwrap();
+	let mut wrapper = InstanceWrapper::new(Arc::new(Mutex::new(vm)));
+	wrapper.instantiate().unwrap();
 	unsafe {
-		*(wrapper.lock().unwrap().base_ptr_mut()) = 42;
+		*(wrapper.base_ptr_mut()) = 42;
 	}
-	assert_eq!(unsafe { *(wrapper.lock().unwrap().base_ptr()) }, 42);
-	wrapper.lock().unwrap().decommit();
-	assert_eq!(unsafe { *(wrapper.lock().unwrap().base_ptr()) }, 0);
+	assert_eq!(unsafe { *(wrapper.base_ptr()) }, 42);
+	wrapper.decommit();
+	assert_eq!(unsafe { *(wrapper.base_ptr()) }, 0);
 }
