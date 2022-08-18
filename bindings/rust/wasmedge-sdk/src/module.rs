@@ -1,9 +1,8 @@
 //! Defines WasmEdge AST Module, ImportType, and ExportType.
 
-use crate::{config::Config, WasmEdgeResult};
+use crate::{config::Config, ExternalInstanceType, WasmEdgeResult};
 use std::{borrow::Cow, marker::PhantomData, path::Path};
 use wasmedge_sys as sys;
-use wasmedge_types::ExternalInstanceType;
 
 /// Defines compiled in-memory representation of an input WASM binary.
 ///
@@ -175,9 +174,10 @@ impl<'module> ExportType<'module> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use wasmedge_types::error::{CoreError, CoreLoadError, WasmEdgeError};
+    use crate::error::{CoreError, CoreLoadError, WasmEdgeError};
 
     #[test]
+    #[allow(clippy::assertions_on_result_states)]
     fn test_module_from_file() {
         // load wasm module from a specified wasm file
         let file = std::path::PathBuf::from(env!("WASMEDGE_DIR"))
@@ -196,6 +196,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::assertions_on_result_states)]
     fn test_module_from_bytes() {
         let file = std::path::PathBuf::from(env!("WASMEDGE_DIR"))
             .join("bindings/rust/wasmedge-sys/tests/data/fibonacci.wasm");

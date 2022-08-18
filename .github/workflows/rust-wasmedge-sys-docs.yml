@@ -1,13 +1,25 @@
 name: wasmedge-sys-docs
 
 concurrency:
-  group: wasmedge-sys-docs-${{ github.head_ref }}
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
 on:
   push:
+    branches:
+      - master
+      - "release/rust/*"
+    paths:
+      - ".github/workflows/rust-wasmedge-sys-docs.yml"
+      - "bindings/rust/wasmedge-sys/**"
     tags:
       - "rust/[0-9]+.[0-9]+.[0-9]+*"
+  pull_request:
+    branches:
+      - master
+    paths:
+      - ".github/workflows/rust-wasmedge-sys-docs.yml"
+      - "bindings/rust/wasmedge-sys/**"
 
 jobs:
   rustdoc:
@@ -27,9 +39,20 @@ jobs:
           profile: minimal
           override: true
 
+      - name: Build WasmEdge with Release mode
+        run: |
+          apt update
+          apt install -y software-properties-common libboost-all-dev llvm-12-dev liblld-12-dev ninja-build
+          cmake -Bbuild -GNinja -DCMAKE_BUILD_TYPE=Release -DWASMEDGE_BUILD_TESTS=ON .
+          cmake --build build
+
       - name: Build Documentation
         run: |
           cd bindings/rust/wasmedge-sys
+          export WASMEDGE_DIR="$(pwd)/../../../"
+          export WASMEDGE_BUILD_DIR="$(pwd)/../../../build"
+          export WASMEDGE_PLUGIN_PATH="$(pwd)/../../../build/plugins/wasmedge_process"
+          export LD_LIBRARY_PATH="$(pwd)/../../../build/lib/api"
           cargo doc --all --no-deps --target-dir=./target
           echo "<meta http-equiv=\"refresh\" content=\"0; url=wasmedge_sys\">" > target/doc/index.html
 

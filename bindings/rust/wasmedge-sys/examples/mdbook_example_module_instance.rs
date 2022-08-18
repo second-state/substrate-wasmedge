@@ -1,9 +1,24 @@
+#[cfg(target_os = "linux")]
 use wasmedge_sys::{
-    utils, Config, Executor, FuncType, Function, Global, GlobalType, ImportInstance, ImportModule,
+    utils, AsImport, Config, Executor, FuncType, Function, Global, GlobalType, ImportModule,
     ImportObject, Loader, MemType, Memory, Store, Table, TableType, Validator, Vm, WasmValue,
 };
+#[cfg(target_os = "linux")]
 use wasmedge_types::{wat2wasm, Mutability, RefType, ValType};
 
+#[cfg_attr(test, test)]
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    #[cfg(target_os = "linux")]
+    vm_apis()?;
+
+    #[cfg(target_os = "linux")]
+    executor_apis()?;
+
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+#[allow(clippy::assertions_on_result_states)]
 fn vm_apis() -> Result<(), Box<dyn std::error::Error>> {
     // load wasmedge_process plugins
     utils::load_plugin_from_default_paths();
@@ -148,6 +163,8 @@ fn vm_apis() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+#[cfg(target_os = "linux")]
+#[allow(clippy::assertions_on_result_states)]
 fn executor_apis() -> Result<(), Box<dyn std::error::Error>> {
     // create an Executor context
     let mut executor = Executor::create(None, None)?;
@@ -261,14 +278,5 @@ fn executor_apis() -> Result<(), Box<dyn std::error::Error>> {
         let active_instance = executor.register_active_module(&mut store, &module)?;
         assert!(active_instance.get_func("fib").is_ok());
     }
-    Ok(())
-}
-
-#[cfg_attr(test, test)]
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    vm_apis()?;
-
-    executor_apis()?;
-
     Ok(())
 }
