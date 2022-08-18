@@ -15,7 +15,6 @@ use std::{
 	path::Path,
 	sync::{Arc, Mutex},
 };
-use wasmedge_sys::Vm;
 
 pub struct Config {
 	/// The WebAssembly standard requires all imports of an instantiated module to be resolved,
@@ -116,16 +115,15 @@ struct InstanceSnapshotData {
 /// A `WasmModule` implementation using wasmtime to compile the runtime module to machine code
 /// and execute the compiled code.
 pub struct WasmEdgeRuntime {
-	vm: Arc<Mutex<Vm>>,
 	snapshot_data: Option<InstanceSnapshotData>,
 	host_functions: Vec<&'static dyn Function>,
-	module: wasmedge_sys::Module,
+	module: Arc<wasmedge_sys::Module>,
 	config: Config,
 }
 
 impl WasmModule for WasmEdgeRuntime {
 	fn new_instance(&self) -> Result<Box<dyn WasmInstance>> {
-		let mut instance_wrapper = Box::new(InstanceWrapper::new(Arc::clone(&self.vm)));
+		let mut instance_wrapper = Box::new(InstanceWrapper::new(&self.config.semantics)?);
 
 		crate::imports::prepare_imports(
 			&mut instance_wrapper,
@@ -136,7 +134,7 @@ impl WasmModule for WasmEdgeRuntime {
 		.map_err(|e| WasmError::Other(format!("fail to register imports: {}", e)))?;
 
 		let strategy = if let Some(ref snapshot_data) = self.snapshot_data {
-			instance_wrapper.instantiate()?;
+			instance_wrapper.instantiate(&self.module)?;
 			let heap_base = instance_wrapper.extract_heap_base()?;
 
 			// This function panics if the instance was created from a runtime blob different from
@@ -155,7 +153,7 @@ impl WasmModule for WasmEdgeRuntime {
 				heap_base,
 			}
 		} else {
-			Strategy::RecreateInstance(InstanceCreator { instance_wrapper })
+			Strategy::RecreateInstance(InstanceCreator { instance_wrapper, module: self.module.clone() })
 		};
 
 		Ok(Box::new(WasmEdgeInstance { strategy }))
@@ -206,11 +204,12 @@ enum Strategy {
 
 struct InstanceCreator {
 	instance_wrapper: Box<InstanceWrapper>,
+	module: Arc<wasmedge_sys::Module>,
 }
 
 impl InstanceCreator {
 	fn instantiate(&mut self) -> Result<()> {
-		Ok(self.instance_wrapper.instantiate()?)
+		Ok(self.instance_wrapper.instantiate(&self.module)?)
 	}
 }
 
@@ -381,7 +380,6 @@ unsafe fn do_create_runtime<H>(
 where
 	H: HostFunctions,
 {
-	println!("vincent debug: do_create_runtime of wasmedge");
 	let loader = wasmedge_sys::Loader::create(common_config(&config.semantics)?).map_err(|e| {
 		WasmError::Other(format!("fail to create a WasmEdge Loader context: {}", e))
 	})?;
@@ -416,22 +414,19 @@ where
 		},
 	};
 
-	let mut vm = Vm::create(common_config(&config.semantics)?, None)
-		.map_err(|e| WasmError::Other(format!("fail to create a WasmEdge Vm context: {}", e)))?;
-
-	vm.load_wasm_from_module(&module)
-		.map_err(|e| WasmError::Other(format!("fail to load wasm from Module: {}", e)))?;
+	let validator = wasmedge_sys::Validator::create(common_config(&config.semantics)?)
+		.map_err(|e| WasmError::Other(format!("fail to create a WasmEdge Validator context: {}", e)))?;
+	validator.validate(&module).map_err(|e| WasmError::Other(format!("fail to validate the module: {}", e)))?;
 
 	Ok(WasmEdgeRuntime {
-		vm: Arc::new(Mutex::new(vm)),
 		snapshot_data,
 		host_functions: H::host_functions(),
-		module,
+		module: Arc::new(module),
 		config,
 	})
 }
 
-fn common_config(
+pub fn common_config(
 	semantics: &Semantics,
 ) -> std::result::Result<Option<wasmedge_sys::Config>, WasmError> {
 	let mut wasmedge_config = wasmedge_sys::Config::create().map_err(|e| {

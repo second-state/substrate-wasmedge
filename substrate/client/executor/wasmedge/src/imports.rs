@@ -1,4 +1,8 @@
-use crate::{instance_wrapper::InstanceWrapper, util};
+use crate::{
+	host::{HostContext, HostState},
+	instance_wrapper::InstanceWrapper,
+	util,
+};
 use sc_executor_common::error::WasmError;
 use sp_wasm_interface::{Function, ValueType};
 use std::{
@@ -7,10 +11,14 @@ use std::{
 };
 use wasmedge_sys::ImportInstance;
 
-struct Wrapper(*mut InstanceWrapper);
-unsafe impl Send for Wrapper{}
+struct Wrapper {
+	host_state: *mut Option<HostState>,
+	instance: *mut Option<wasmedge_sys::Instance>,
+}
 
-/// Goes over all imports of a module and register host functions into Vm.
+unsafe impl Send for Wrapper {}
+
+/// Goes over all imports of a module and register host functions.
 /// Returns an error if there are imports that cannot be satisfied.
 pub(crate) fn prepare_imports(
 	instance_wrapper: &mut InstanceWrapper,
@@ -74,35 +82,53 @@ pub(crate) fn prepare_imports(
 				)));
 			}
 
-			// let instance_wrapper_clone = Arc::clone(&instance_wrapper);
-			let s = Arc::new(Mutex::new(Wrapper(instance_wrapper as *mut InstanceWrapper)));
+			let host_state = instance_wrapper.host_state_ptr();
+			let instance = instance_wrapper.instance_ptr();
+
+			let s = Arc::new(Mutex::new(Wrapper { host_state, instance }));
 			let returns_len = host_func_ty.returns_len();
 			let function_static = move |inputs: Vec<wasmedge_sys::WasmValue>| -> std::result::Result<
 				Vec<wasmedge_sys::WasmValue>,
 				u8,
 			> {
-				println!("{}", host_func.name());
-				let unwind_result = {
+				let mut wrapper = s.lock().unwrap();
+				let host_state = unsafe { &mut *(wrapper.host_state) };
+				let instance = unsafe { &*(wrapper.instance) };
+				let instance = instance.as_ref().unwrap();
+				let host_state = host_state.as_mut().unwrap();
 
+				let mut host_context = HostContext::new(
+					instance
+						.get_memory("memory")
+						.map_err(|e| {
+							WasmError::Other(format!(
+								"failed to get WASM memory named 'memory': {}",
+								e,
+							))
+						})
+						.unwrap(),
+					instance
+						.get_table("__indirect_function_table").ok(),
+					host_state,
+				);
+
+				let unwind_result = {
 					// `from_wasmedge_val` panics if it encounters a value that doesn't fit into the values
 					// available in substrate.
 					//
 					// This, however, cannot happen since the signature of this function is created from
 					// a `dyn Function` signature of which cannot have a non substrate value by definition.
 					let mut params = inputs.iter().cloned().map(util::from_wasmedge_val);
-
-					std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-						unsafe {
-							host_func.execute(&mut *(s.lock().unwrap().0), &mut params)
-						}
-					}))
+					
+					std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| 
+						host_func.execute(&mut host_context, &mut params)
+					))
 				};
-				println!("leave");
 				let execution_result = match unwind_result {
 					Ok(execution_result) => execution_result,
 					Err(_) => return Err(0),
 				};
-				
+
 				match execution_result {
 					Ok(Some(ret_val)) => {
 						debug_assert!(
@@ -124,14 +150,13 @@ pub(crate) fn prepare_imports(
 				}
 			};
 
-			let func = wasmedge_sys::Function::create(&host_func_ty, Box::new(function_static), 0)
+			let func = wasmedge_sys::Function::create_single_thread(&host_func_ty, Box::new(function_static), 0)
 				.map_err(|e| {
 					WasmError::Other(format!(
 						"failed to register host function '{}' into WASM: {}",
 						name, e
 					))
 				})?;
-
 			import.add_func(&name, func);
 		} else {
 			missing_func_imports.insert(name, (import_ty, func_ty));
@@ -145,7 +170,7 @@ pub(crate) fn prepare_imports(
 					Vec<wasmedge_sys::WasmValue>,
 					u8,
 				> { Err(0) };
-				let func = wasmedge_sys::Function::create(
+				let func = wasmedge_sys::Function::create_single_thread(
 					&wasmedge_sys::FuncType::create([], []).map_err(|e| {
 						WasmError::Other(format!(
 							"fail to create a WasmEdge FuncType context: {}",
@@ -158,7 +183,6 @@ pub(crate) fn prepare_imports(
 				.map_err(|e| {
 					WasmError::Other(format!("fail to create a blank Function instance: {}", e))
 				})?;
-
 				import.add_func(&name, func);
 			}
 		} else {
@@ -174,12 +198,11 @@ pub(crate) fn prepare_imports(
 		}
 	}
 
+	let import_obj = wasmedge_sys::ImportObject::Import(import);
+
 	instance_wrapper
-		.vm()
-		.lock()
-		.map_err(|e| WasmError::Other(format!("failed to lock: {}", e,)))?
-		.register_wasm_from_import(wasmedge_sys::ImportObject::Import(import))
-		.map_err(|e| WasmError::Other(format!("vm register import err: {}", e)))?;
+		.register_import(import_obj)
+		.map_err(|e| WasmError::Other(format!("failed to register import object: {}", e)))?;
 
 	Ok(())
 }

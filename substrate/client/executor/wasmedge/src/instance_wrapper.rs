@@ -4,45 +4,53 @@ use sc_executor_common::{
 	wasm_runtime::InvokeMethod,
 };
 use sp_wasm_interface::{Pointer, Value, WordSize};
-use std::sync::{Arc, Mutex};
-use wasmedge_sys::Vm;
 use wasmedge_types::ValType;
 
 pub struct InstanceWrapper {
-	vm: Arc<Mutex<Vm>>,
+	store: wasmedge_sys::Store,
+	executor: wasmedge_sys::Executor,
 	instance: Option<wasmedge_sys::Instance>,
 	memory: Option<wasmedge_sys::Memory>,
 	host_state: Option<HostState>,
+	import: Option<wasmedge_sys::ImportObject>,
 }
 
 impl InstanceWrapper {
-	pub fn new(vm: Arc<Mutex<Vm>>) -> Self {
-		InstanceWrapper { vm, instance: None, memory: None, host_state: None }
+	pub fn new(semantics: &crate::runtime::Semantics) -> Result<Self> {
+		let executor =
+			wasmedge_sys::Executor::create(crate::runtime::common_config(semantics)?, None)
+				.map_err(|e| {
+					WasmError::Other(format!("fail to create a WasmEdge Executor context: {}", e))
+				})?;
+		let store = wasmedge_sys::Store::create().map_err(|e| {
+			WasmError::Other(format!("fail to create a WasmEdge Store context: {}", e))
+		})?;
+
+		Ok(InstanceWrapper {
+			store,
+			executor,
+			instance: None,
+			memory: None,
+			host_state: None,
+			import: None,
+		})
 	}
 
-	pub fn instantiate(&mut self) -> Result<()> {
-		self.vm
-			.lock()
-			.map_err(|e| WasmError::Other(format!("failed to lock: {}", e,)))?
-			.validate()
-			.map_err(|e| WasmError::Other(format!("fail to validate the wasm module: {}", e)))?;
-
-		self.vm
-			.lock()
-			.map_err(|e| WasmError::Other(format!("failed to lock: {}", e,)))?
-			.instantiate()
-			.map_err(|e| {
-				WasmError::Other(
-					format!("failed to instantiate a new WASM module instance: {}", e,),
-				)
+	pub fn register_import(&mut self, import_obj: wasmedge_sys::ImportObject) -> Result<()> {
+		self.import = Some(import_obj);
+		self.executor
+			.register_import_object(&mut self.store, &self.import.as_ref().unwrap())
+			.map_err(|error| {
+				WasmError::Other(format!("failed to register import object: {}", error,))
 			})?;
+		Ok(())
+	}
 
+	pub fn instantiate(&mut self, module: &wasmedge_sys::Module) -> Result<()> {
 		let instance = self
-			.vm
-			.lock()
-			.map_err(|e| WasmError::Other(format!("failed to lock: {}", e,)))?
-			.active_module()
-			.map_err(|e| WasmError::Other(format!("failed to get WASM instance: {}", e,)))?;
+			.executor
+			.register_active_module(&mut self.store, &module)
+			.map_err(|e| WasmError::Other(format!("failed to register active module: {}", e,)))?;
 
 		let memory = instance.get_memory("memory").map_err(|e| {
 			WasmError::Other(format!("failed to get WASM memory named 'memory': {}", e,))
@@ -62,10 +70,6 @@ impl InstanceWrapper {
 		let data_ptr = wasmedge_sys::WasmValue::from_i32(u32::from(data_ptr) as i32);
 		let data_len = wasmedge_sys::WasmValue::from_i32(u32::from(data_len) as i32);
 
-		let mut executor = wasmedge_sys::Executor::create(None, None).map_err(|e| {
-			WasmError::Other(format!("fail to create a WasmEdge Executor context: {}", e))
-		})?;
-
 		let res = match method {
 			InvokeMethod::Export(method) => {
 				let func = self.instance().get_func(method).map_err(|error| {
@@ -73,8 +77,8 @@ impl InstanceWrapper {
 				})?;
 
 				check_signature1(&func)?;
-
-				func.call(&mut executor, vec![data_ptr, data_len])
+				
+				func.call(&mut self.executor, vec![data_ptr, data_len])
 			},
 			InvokeMethod::Table(func_ref) => {
 				let table = self
@@ -90,7 +94,7 @@ impl InstanceWrapper {
 
 				check_signature2(&func_ref)?;
 
-				func_ref.call(&mut executor, vec![data_ptr, data_len])
+				func_ref.call(&mut self.executor, vec![data_ptr, data_len])
 			},
 			InvokeMethod::TableWithWrapper { dispatcher_ref, func } => {
 				let table = self
@@ -107,14 +111,13 @@ impl InstanceWrapper {
 				check_signature3(&func_ref)?;
 
 				func_ref.call(
-					&mut executor,
-					vec![wasmedge_sys::WasmValue::from_f32(func as f32), data_ptr, data_len],
+					&mut self.executor,
+					vec![wasmedge_sys::WasmValue::from_i32(func as i32), data_ptr, data_len],
 				)
 			},
 		}
 		.map_err(|trap| {
-			let host_state = self
-				.host_state_mut();
+			let host_state = self.host_state_mut();
 
 			// The logic to print out a backtrace is somewhat complicated,
 			// so let's get wasmtime to print it out for us.
@@ -139,6 +142,7 @@ impl InstanceWrapper {
 				})
 			}
 		})?;
+
 		Ok(res[0].to_i64() as u64)
 	}
 
@@ -191,12 +195,6 @@ impl InstanceWrapper {
 			.expect("failed to returns the const data pointer to the Memory.")
 	}
 
-	pub fn base_ptr_mut(&mut self) -> *mut u8 {
-		self.memory_mut()
-			.data_pointer_mut(0, 1)
-			.expect("failed to returns the mut data pointer to the Memory.")
-	}
-
 	pub(crate) fn memory(&self) -> &wasmedge_sys::Memory {
 		self.memory.as_ref().unwrap()
 	}
@@ -209,16 +207,18 @@ impl InstanceWrapper {
 		self.instance.as_ref().unwrap()
 	}
 
-	pub(crate) fn vm(&self) -> Arc<Mutex<Vm>> {
-		Arc::clone(&self.vm)
-	}
-
-	pub fn host_state(&self) -> &HostState {
-		self.host_state.as_ref().expect("host state is not empty when calling a function in wasm; qed")
-	}
-
 	pub fn host_state_mut(&mut self) -> &mut HostState {
-		self.host_state.as_mut().expect("host state is not empty when calling a function in wasm; qed")
+		self.host_state
+			.as_mut()
+			.expect("host state is not empty when calling a function in wasm; qed")
+	}
+
+	pub fn host_state_ptr(&mut self) -> *mut Option<HostState> {
+		&mut self.host_state as *mut Option<HostState>
+	}
+
+	pub fn instance_ptr(&mut self) -> *mut Option<wasmedge_sys::Instance> {
+		&mut self.instance as *mut Option<wasmedge_sys::Instance>
 	}
 
 	pub fn set_host_state(&mut self, host_state: Option<HostState>) {
@@ -330,21 +330,4 @@ fn check_signature3(func_ref: &wasmedge_sys::FuncRef) -> Result<()> {
 		return Err(Error::Other(format!("Invalid signature for direct entry point")));
 	}
 	Ok(())
-}
-
-#[test]
-fn decommit_works() {
-	let loader = wasmedge_sys::Loader::create(None).unwrap();
-	let code = wat::parse_str("(module (memory (export \"memory\") 1 4))").unwrap();
-	let module = loader.from_bytes(&code).unwrap();
-	let mut vm = Vm::create(None, None).unwrap();
-	vm.load_wasm_from_module(&module).unwrap();
-	let mut wrapper = InstanceWrapper::new(Arc::new(Mutex::new(vm)));
-	wrapper.instantiate().unwrap();
-	unsafe {
-		*(wrapper.base_ptr_mut()) = 42;
-	}
-	assert_eq!(unsafe { *(wrapper.base_ptr()) }, 42);
-	wrapper.decommit();
-	assert_eq!(unsafe { *(wrapper.base_ptr()) }, 0);
 }
