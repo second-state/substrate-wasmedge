@@ -1,12 +1,13 @@
 //! Defines WasmEdge Vm struct.
 
+#[cfg(target_os = "linux")]
+use crate::WasmEdgeProcessInstance;
 use crate::{
-    config::Config, ImportObject, Instance, Module, Statistics, WasiInstance,
-    WasmEdgeProcessInstance, WasmEdgeResult,
+    config::Config, wasi::WasiInstance, Engine, Func, FuncRef, FuncType, ImportObject, Instance,
+    Module, Statistics, WasmEdgeResult, WasmValue,
 };
 use std::{marker::PhantomData, path::Path};
-use wasmedge_sys as sys;
-use wasmedge_types::FuncType;
+use wasmedge_sys::{self as sys, Engine as sys_engine};
 
 /// A [Vm] defines a virtual environment for managing WebAssembly programs.
 ///
@@ -227,7 +228,7 @@ impl Vm {
     ///
     /// If fail to run the WASM function, then an error is returned.
     pub fn run_func(
-        &mut self,
+        &self,
         mod_name: Option<&str>,
         func_name: impl AsRef<str>,
         args: impl IntoIterator<Item = sys::WasmValue>,
@@ -405,13 +406,13 @@ impl Vm {
         })
     }
 
-    /// Returns the [Wasi module instance](crate::WasiInstance).
+    /// Returns the [Wasi module instance](crate::wasi::WasiInstance).
     ///
     /// Notice that this function is only available when a [config](crate::config::Config) with the enabled [wasi](crate::config::HostRegistrationConfigOptions::wasi) option is used in the creation of this [Vm].
     ///
     /// # Error
     ///
-    /// If fail to get the [Wasi module instance](crate::WasiInstance), then an error is returned.
+    /// If fail to get the [Wasi module instance](crate::wasi::WasiInstance), then an error is returned.
     pub fn wasi_module(&mut self) -> WasmEdgeResult<WasiInstance> {
         let inner_wasi_module = self.inner.wasi_module_mut()?;
 
@@ -427,6 +428,7 @@ impl Vm {
     /// # Error
     ///
     /// If fail to get the [WasmEdgeProcess module instance](crate::WasmEdgeProcessInstance), then an error is returned.
+    #[cfg(target_os = "linux")]
     pub fn wasmedge_process_module(&mut self) -> WasmEdgeResult<WasmEdgeProcessInstance> {
         let inner_process_module = self.inner.wasmedge_process_module_mut()?;
 
@@ -445,6 +447,27 @@ impl Vm {
         self.inner.contains_module(mod_name.as_ref())
     }
 }
+impl Engine for Vm {
+    fn run_func(
+        &self,
+        func: &Func,
+        params: impl IntoIterator<Item = WasmValue>,
+    ) -> WasmEdgeResult<Vec<WasmValue>> {
+        let executor = self.inner.executor()?;
+        let returns = executor.run_func(&func.inner, params)?;
+        Ok(returns)
+    }
+
+    fn run_func_ref(
+        &self,
+        func_ref: &FuncRef,
+        params: impl IntoIterator<Item = WasmValue>,
+    ) -> WasmEdgeResult<Vec<WasmValue>> {
+        let executor = self.inner.executor()?;
+        let returns = executor.run_func_ref(&func_ref.inner, params)?;
+        Ok(returns)
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -457,12 +480,10 @@ mod tests {
         io::WasmVal,
         params,
         types::Val,
-        Global, ImportObjectBuilder, Memory, Table,
+        wat2wasm, AsInstance, Global, GlobalType, ImportObjectBuilder, Memory, MemoryType,
+        Mutability, RefType, Table, TableType, ValType,
     };
     use wasmedge_sys::WasmValue;
-    use wasmedge_types::{
-        wat2wasm, GlobalType, MemoryType, Mutability, RefType, TableType, ValType,
-    };
 
     #[test]
     fn test_vm_run_func_from_file() {
@@ -738,6 +759,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::assertions_on_result_states)]
     fn test_vm_create() {
         {
             let result = Vm::new(None);
@@ -784,6 +806,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "linux")]
     fn test_vm_wasmedge_process_module() {
         let host_reg_options = HostRegistrationConfigOptions::new().wasmedge_process(true);
         let result = ConfigBuilder::new(CommonConfigOptions::default())
@@ -829,6 +852,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::assertions_on_result_states)]
     fn test_vm_register_module_from_file() {
         // create a Vm context
         let result = Vm::new(None);
@@ -848,6 +872,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::assertions_on_result_states)]
     fn test_vm_register_module_from_bytes() {
         // create a Vm context
         let result = Vm::new(None);
@@ -901,6 +926,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::assertions_on_result_states)]
     fn test_vm_register_import_module() {
         // create a Const global instance
         let result = Global::new(
@@ -1121,6 +1147,74 @@ mod tests {
         assert_eq!(signature.args().unwrap(), [ValType::I32]);
         assert!(signature.returns().is_some());
         assert_eq!(signature.returns().unwrap(), [ValType::I32]);
+    }
+
+    #[test]
+    fn test_vm_impl_engine_trait() {
+        // create a Config
+        let result = ConfigBuilder::new(CommonConfigOptions::default()).build();
+        assert!(result.is_ok());
+        let config = result.unwrap();
+
+        // create a Vm context
+        let result = Vm::new(Some(config));
+        assert!(result.is_ok());
+        let vm = result.unwrap();
+
+        // read the wasm bytes of fibonacci.wasm
+        let result = wat2wasm(
+            br#"
+        (module
+            (export "fib" (func $fib))
+            (func $fib (param $n i32) (result i32)
+             (if
+              (i32.lt_s
+               (get_local $n)
+               (i32.const 2)
+              )
+              (return
+               (i32.const 1)
+              )
+             )
+             (return
+              (i32.add
+               (call $fib
+                (i32.sub
+                 (get_local $n)
+                 (i32.const 2)
+                )
+               )
+               (call $fib
+                (i32.sub
+                 (get_local $n)
+                 (i32.const 1)
+                )
+               )
+              )
+             )
+            )
+           )
+"#,
+        );
+        assert!(result.is_ok());
+        let wasm_bytes = result.unwrap();
+
+        let result = vm.register_module_from_bytes("extern", &wasm_bytes);
+        assert!(result.is_ok());
+        let mut vm = result.unwrap();
+
+        let result = vm.named_module("extern");
+        assert!(result.is_ok());
+        let instance = result.unwrap();
+
+        let result = instance.func("fib");
+        assert!(result.is_some());
+        let fib = result.unwrap();
+
+        let result = fib.call(&mut vm, params!(5));
+        assert!(result.is_ok());
+        let returns = result.unwrap();
+        assert_eq!(returns[0].to_i32(), 8)
     }
 
     fn real_add(inputs: Vec<WasmValue>) -> std::result::Result<Vec<WasmValue>, u8> {

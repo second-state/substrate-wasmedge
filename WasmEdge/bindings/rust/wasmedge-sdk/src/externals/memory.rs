@@ -91,7 +91,7 @@ impl Memory {
     /// # Error
     ///
     /// If fail to write to the memory, then an error is returned.
-    pub fn write(&mut self, data: impl IntoIterator<Item = u8>, offset: u32) -> WasmEdgeResult<()> {
+    pub fn write(&mut self, data: impl AsRef<[u8]>, offset: u32) -> WasmEdgeResult<()> {
         self.inner.set_data(data, offset)?;
         Ok(())
     }
@@ -120,6 +120,7 @@ mod tests {
     };
 
     #[test]
+    #[allow(clippy::assertions_on_result_states)]
     fn test_memory_type() {
         let result = MemoryType::new(0, None, false);
         assert!(result.is_ok());
@@ -135,6 +136,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::assertions_on_result_states)]
     fn test_memory() {
         // create a memory instance
         let result = MemoryType::new(10, Some(20), false);
@@ -205,7 +207,10 @@ mod tests {
         assert_eq!(data, vec![0; 10]);
 
         // write data
-        let result = memory.write(vec![1; 10], 10);
+        // ! debug
+        let data = vec![1; 10];
+        let result = memory.write(data.as_slice(), 10);
+        // let result = memory.write(vec![1; 10], 10);
         assert!(result.is_ok());
         // read data after write data
         let result = memory.read(10, 10);

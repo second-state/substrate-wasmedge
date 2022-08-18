@@ -23,10 +23,9 @@ pub(crate) fn path_to_cstring(path: &Path) -> WasmEdgeResult<CString> {
 pub(crate) fn path_to_cstring(path: &Path) -> WasmEdgeResult<CString> {
     match path.to_str() {
         Some(s) => Ok(CString::new(s)?),
-        None => {
-            let message = format!("Couldn't convert path '{}' to UTF-8", path.display());
-            Err(message.into())
-        }
+        None => Err(WasmEdgeError::WindowsPathConversion(
+            path.to_string_lossy().to_string(),
+        )),
     }
 }
 
@@ -292,9 +291,6 @@ pub(crate) fn check(result: WasmEdge_Result) -> WasmEdgeResult<()> {
 ///
 /// * The path specified by the `WASMEDGE_PLUGIN_PATH` environment variable.
 ///
-/// * For Linux and MacOS, `$HOME/.wasmedge/plugins/wasmedge_process`.
-///
-/// * For Windows, `%USERPROFILE%\.wasmedge\plugins\wasmedge_process`.
 pub fn load_plugin_from_default_paths() {
     unsafe { ffi::WasmEdge_Plugin_loadWithDefaultPluginPaths() }
 }
@@ -322,3 +318,51 @@ pub fn version_string() -> String {
             .into_owned()
     }
 }
+
+// #[derive(Debug)]
+// pub struct Driver {}
+// impl Driver {
+/// Triggers the WasmEdge AOT compiler tool
+pub fn driver_aot_compiler<I, V>(args: I) -> i32
+where
+    I: IntoIterator<Item = V>,
+    V: AsRef<str>,
+{
+    // create a vector of zero terminated strings
+    let args = args
+        .into_iter()
+        .map(|arg| CString::new(arg.as_ref()).unwrap())
+        .collect::<Vec<CString>>();
+
+    // convert the strings to raw pointers
+    let mut c_args = args
+        .iter()
+        .map(|arg| arg.as_ptr())
+        .collect::<Vec<*const std::os::raw::c_char>>();
+
+    unsafe {
+        ffi::WasmEdge_Driver_Compiler(c_args.len() as std::os::raw::c_int, c_args.as_mut_ptr())
+    }
+}
+
+/// Triggers the WasmEdge runtime tool
+pub fn driver_runtime_tool<I, V>(args: I) -> i32
+where
+    I: IntoIterator<Item = V>,
+    V: AsRef<str>,
+{
+    // create a vector of zero terminated strings
+    let args = args
+        .into_iter()
+        .map(|arg| CString::new(arg.as_ref()).unwrap())
+        .collect::<Vec<CString>>();
+
+    // convert the strings to raw pointers
+    let mut c_args = args
+        .iter()
+        .map(|arg| arg.as_ptr())
+        .collect::<Vec<*const std::os::raw::c_char>>();
+
+    unsafe { ffi::WasmEdge_Driver_Tool(c_args.len() as std::os::raw::c_int, c_args.as_mut_ptr()) }
+}
+// }

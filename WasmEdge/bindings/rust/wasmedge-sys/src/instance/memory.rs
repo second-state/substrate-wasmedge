@@ -145,18 +145,13 @@ impl Memory {
     /// assert_eq!(data, vec![1; 10]);
     /// ```
     ///
-    pub fn set_data(
-        &mut self,
-        data: impl IntoIterator<Item = u8>,
-        offset: u32,
-    ) -> WasmEdgeResult<()> {
-        let data = data.into_iter().collect::<Vec<u8>>();
+    pub fn set_data(&mut self, data: impl AsRef<[u8]>, offset: u32) -> WasmEdgeResult<()> {
         unsafe {
             check(ffi::WasmEdge_MemoryInstanceSetData(
                 self.inner.0,
-                data.as_ptr() as *mut _,
+                data.as_ref().as_ptr(),
                 offset,
-                data.len() as u32,
+                data.as_ref().len() as u32,
             ))
         }
     }
@@ -385,6 +380,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::assertions_on_result_states)]
     fn test_memory_grow() {
         // create a Memory with a limit range [10, 20]
         let result = MemType::create(10, Some(20), false);
@@ -421,6 +417,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::assertions_on_result_states)]
     fn test_memory_data() {
         // create a Memory: the min size 1 and the max size 2
         let result = MemType::create(1, Some(2), false);

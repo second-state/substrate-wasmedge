@@ -120,7 +120,7 @@ mod tests {
     use crate::{
         instance::{Function, Global, GlobalType, MemType, Memory, Table, TableType},
         types::WasmValue,
-        Config, Engine, Executor, FuncType, ImportInstance, ImportModule, ImportObject, Vm,
+        AsImport, Config, Engine, Executor, FuncType, ImportModule, ImportObject, Vm,
     };
     use std::{
         sync::{Arc, Mutex},
@@ -129,6 +129,7 @@ mod tests {
     use wasmedge_types::{Mutability, RefType, ValType};
 
     #[test]
+    #[allow(clippy::assertions_on_result_states)]
     fn test_store_basic() {
         let module_name = "extern_module";
 
@@ -203,6 +204,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::assertions_on_result_states)]
     fn test_store_send() {
         let result = Store::create();
         assert!(result.is_ok());
@@ -219,6 +221,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::assertions_on_result_states)]
     fn test_store_sync() {
         let result = Store::create();
         assert!(result.is_ok());
@@ -278,6 +281,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::assertions_on_result_states)]
     fn test_store_named_module() {
         // create a Config context
         let result = Config::create();

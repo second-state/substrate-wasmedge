@@ -1,7 +1,7 @@
 name: "CodeQL"
 
 concurrency:
-  group: CodeQL-${{ github.head_ref }}
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
 on:
@@ -36,8 +36,14 @@ on:
     - cron: '15 18 * * 6'
 
 jobs:
+  # TODO: Refactor `lint` with `on.workflow_run`
+  # https://docs.github.com/en/actions/using-workflows/triggering-a-workflow
+  lint:
+    uses: ./.github/workflows/reusable-call-linter.yml
+
   analyze:
     name: Analyze
+    needs: lint
     runs-on: ubuntu-latest
     container:
       image: wasmedge/wasmedge:ubuntu-build-gcc
@@ -70,7 +76,9 @@ jobs:
 
     - name: Build
       run: |
-        cmake -Bbuild -GNinja -DCMAKE_BUILD_TYPE=Debug .
+        apt update 
+        apt install -y libssl-dev
+        cmake -Bbuild -GNinja -DCMAKE_BUILD_TYPE=Debug -DWASMEDGE_PLUGIN_WASI_CRYPTO=ON .
         cmake --build build
 
     - name: Perform CodeQL Analysis

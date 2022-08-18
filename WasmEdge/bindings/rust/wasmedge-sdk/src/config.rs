@@ -1,8 +1,7 @@
 //! Defines the structs used to construct configurations.
 
-use crate::WasmEdgeResult;
+use crate::{CompilerOptimizationLevel, CompilerOutputFormat, WasmEdgeResult};
 use wasmedge_sys as sys;
-use wasmedge_types::{CompilerOptimizationLevel, CompilerOutputFormat};
 
 /// Defines a builder for creating a [Config].
 #[derive(Debug)]
@@ -88,6 +87,10 @@ impl ConfigBuilder {
         inner.bulk_memory_operations(self.common_config.bulk_memory_operations);
         inner.reference_types(self.common_config.reference_types);
         inner.simd(self.common_config.simd);
+        inner.multi_memories(self.common_config.multi_memories);
+        inner.threads(self.common_config.threads);
+        inner.tail_call(self.common_config.tail_call);
+        inner.function_references(self.common_config.function_references);
 
         if let Some(stat_config) = self.stat_config {
             inner.count_instructions(stat_config.count_instructions);
@@ -106,6 +109,7 @@ impl ConfigBuilder {
         }
         if let Some(host_config) = self.host_config {
             inner.wasi(host_config.wasi);
+            #[cfg(target_os = "linux")]
             inner.wasmedge_process(host_config.wasmedge_process);
         }
 
@@ -147,8 +151,7 @@ impl ConfigBuilder {
 /// let runtime_options = RuntimeConfigOptions::default().max_memory_pages(1024);
 ///
 /// let host_options = HostRegistrationConfigOptions::default()
-///     .wasi(true)
-///     .wasmedge_process(true);
+///     .wasi(true);
 ///
 /// let result = ConfigBuilder::new(common_options)
 ///     .with_statistics_config(stat_options)
@@ -182,6 +185,7 @@ impl Config {
     }
 
     /// Checks if host registration wasmedge process turns on or not.
+    #[cfg(target_os = "linux")]
     pub fn wasmedge_process_enabled(&self) -> bool {
         self.inner.wasmedge_process_enabled()
     }
@@ -224,6 +228,26 @@ impl Config {
     /// Checks if the SIMD option turns on or not.
     pub fn simd_enabled(&self) -> bool {
         self.inner.simd_enabled()
+    }
+
+    /// Checks if the MultiMemories option turns on or not.
+    pub fn multi_memories_enabled(&self) -> bool {
+        self.inner.multi_memories_enabled()
+    }
+
+    /// Checks if the Threads option turns on or not.
+    pub fn threads_enabled(&self) -> bool {
+        self.inner.threads_enabled()
+    }
+
+    /// Checks if the TailCall option turns on or not.
+    pub fn tail_call_enabled(&self) -> bool {
+        self.inner.tail_call_enabled()
+    }
+
+    /// Checks if the FunctionReferences option turns on or not.
+    pub fn function_references_enabled(&self) -> bool {
+        self.inner.function_references_enabled()
     }
 
     /// Returns the optimization level of AOT compiler.
@@ -312,6 +336,10 @@ pub struct CommonConfigOptions {
     bulk_memory_operations: bool,
     reference_types: bool,
     simd: bool,
+    multi_memories: bool,
+    threads: bool,
+    tail_call: bool,
+    function_references: bool,
 }
 impl CommonConfigOptions {
     /// Creates a new instance of [CommonConfigOptions].
@@ -324,6 +352,10 @@ impl CommonConfigOptions {
             bulk_memory_operations: true,
             reference_types: true,
             simd: true,
+            multi_memories: false,
+            threads: false,
+            tail_call: false,
+            function_references: false,
         }
     }
 
@@ -407,6 +439,49 @@ impl CommonConfigOptions {
     pub fn simd(self, enable: bool) -> Self {
         Self {
             simd: enable,
+            ..self
+        }
+    }
+
+    /// Enables or disables the MultiMemories option.
+    ///
+    /// # Argument
+    ///
+    /// - `enable` specifies if the option turns on or not.
+    pub fn multi_memories(self, enable: bool) -> Self {
+        Self {
+            multi_memories: enable,
+            ..self
+        }
+    }
+
+    /// Enables or disables the Threads option.
+    ///
+    /// # Argument
+    ///
+    /// - `enable` specifies if the option turns on or not.
+    pub fn threads(self, enable: bool) -> Self {
+        Self {
+            threads: enable,
+            ..self
+        }
+    }
+
+    /// Enables or disables the TailCall option.
+    ///
+    /// # Argument
+    ///
+    /// - `enable` specifies if the option turns on or not.
+    pub fn tail_call(self, enable: bool) -> Self {
+        Self {
+            tail_call: enable,
+            ..self
+        }
+    }
+
+    pub fn function_references(self, enable: bool) -> Self {
+        Self {
+            function_references: enable,
             ..self
         }
     }
@@ -632,6 +707,7 @@ impl StatisticsConfigOptions {
 #[derive(Debug, Default)]
 pub struct HostRegistrationConfigOptions {
     wasi: bool,
+    #[cfg(target_os = "linux")]
     wasmedge_process: bool,
 }
 impl HostRegistrationConfigOptions {
@@ -639,6 +715,7 @@ impl HostRegistrationConfigOptions {
     pub fn new() -> Self {
         Self {
             wasi: false,
+            #[cfg(target_os = "linux")]
             wasmedge_process: false,
         }
     }
@@ -651,7 +728,8 @@ impl HostRegistrationConfigOptions {
     pub fn wasi(self, enable: bool) -> Self {
         Self {
             wasi: enable,
-            ..self
+            #[cfg(target_os = "linux")]
+            wasmedge_process: self.wasmedge_process,
         }
     }
 
@@ -660,6 +738,7 @@ impl HostRegistrationConfigOptions {
     /// # Argument
     ///
     /// - `enable` specifies if the option turns on or not.
+    #[cfg(target_os = "linux")]
     pub fn wasmedge_process(self, enable: bool) -> Self {
         Self {
             wasmedge_process: enable,
@@ -671,7 +750,6 @@ impl HostRegistrationConfigOptions {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use wasmedge_types::{CompilerOptimizationLevel, CompilerOutputFormat};
 
     #[test]
     fn test_config_create() {
@@ -682,7 +760,8 @@ mod tests {
             .non_trap_conversions(true)
             .reference_types(true)
             .sign_extension_operators(true)
-            .simd(true);
+            .simd(true)
+            .multi_memories(true);
 
         let compiler_options = CompilerConfigOptions::default()
             .dump_ir(true)
@@ -698,9 +777,7 @@ mod tests {
 
         let runtime_options = RuntimeConfigOptions::default().max_memory_pages(1024);
 
-        let host_options = HostRegistrationConfigOptions::default()
-            .wasi(true)
-            .wasmedge_process(true);
+        let host_options = HostRegistrationConfigOptions::default().wasi(true);
 
         let result = ConfigBuilder::new(common_options)
             .with_statistics_config(stat_options)
@@ -719,6 +796,7 @@ mod tests {
         assert!(config.reference_types_enabled());
         assert!(config.sign_extension_operators_enabled());
         assert!(config.simd_enabled());
+        assert!(config.multi_memories_enabled());
 
         // check compiler config options
         assert!(config.dump_ir_enabled());
@@ -734,11 +812,15 @@ mod tests {
 
         // check runtime config options
         assert_eq!(config.max_memory_pages(), 1024);
+
+        assert!(config.wasi_enabled());
     }
 
     #[test]
     fn test_config_copy() {
-        let common_config = CommonConfigOptions::default().simd(false);
+        let common_config = CommonConfigOptions::default()
+            .simd(false)
+            .multi_memories(true);
         let compiler_config =
             CompilerConfigOptions::default().optimization_level(CompilerOptimizationLevel::O0);
         let stat_config = StatisticsConfigOptions::default().measure_time(false);
@@ -754,6 +836,7 @@ mod tests {
         assert!(result.is_ok());
         let config = result.unwrap();
         assert!(!config.simd_enabled());
+        assert!(config.multi_memories_enabled());
         assert_eq!(config.optimization_level(), CompilerOptimizationLevel::O0);
         assert!(!config.time_measuring_enabled());
         assert_eq!(config.max_memory_pages(), 1024);
@@ -764,6 +847,7 @@ mod tests {
         assert!(result.is_ok());
         let config_copied = result.unwrap();
         assert!(!config_copied.simd_enabled());
+        assert!(config_copied.multi_memories_enabled());
         assert_eq!(
             config_copied.optimization_level(),
             CompilerOptimizationLevel::O0

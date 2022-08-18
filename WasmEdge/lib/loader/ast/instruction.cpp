@@ -146,13 +146,15 @@ Expect<void> Loader::loadInstruction(AST::Instruction &Instr) {
     if (auto Res = readU32(Instr.getMemoryAlign()); unlikely(!Res)) {
       return Unexpect(Res);
     }
-    if (auto Res = readU32(Instr.getMemoryOffset()); unlikely(!Res)) {
-      return Unexpect(Res);
-    }
     if (Conf.hasProposal(Proposal::MultiMemories) &&
         Instr.getMemoryAlign() >= 64) {
       Instr.getMemoryAlign() -= 64;
-      return readU32(Instr.getTargetIndex());
+      if (auto Res = readU32(Instr.getTargetIndex()); unlikely(!Res)) {
+        return Unexpect(Res);
+      }
+    }
+    if (auto Res = readU32(Instr.getMemoryOffset()); unlikely(!Res)) {
+      return Unexpect(Res);
     }
     return {};
   };
@@ -400,7 +402,7 @@ Expect<void> Loader::loadInstruction(AST::Instruction &Instr) {
       return logLoadError(Res.error(), FMgr.getLastOffset(),
                           ASTNodeAttr::Instruction);
     } else {
-      Instr.setNum(static_cast<uint32_t>(*Res));
+      Instr.setNum(static_cast<uint128_t>(static_cast<uint32_t>(*Res)));
     }
     return {};
   case OpCode::I64__const:
@@ -408,7 +410,7 @@ Expect<void> Loader::loadInstruction(AST::Instruction &Instr) {
       return logLoadError(Res.error(), FMgr.getLastOffset(),
                           ASTNodeAttr::Instruction);
     } else {
-      Instr.setNum(static_cast<uint64_t>(*Res));
+      Instr.setNum(static_cast<uint128_t>(static_cast<uint64_t>(*Res)));
     }
     return {};
   case OpCode::F32__const:
@@ -854,6 +856,7 @@ Expect<void> Loader::loadInstruction(AST::Instruction &Instr) {
   case OpCode::Atomic__fence:
     return {};
 
+  // Atomic Memory Instructions.
   case OpCode::Memory__atomic__notify:
   case OpCode::Memory__atomic__wait32:
   case OpCode::Memory__atomic__wait64:
@@ -921,10 +924,7 @@ Expect<void> Loader::loadInstruction(AST::Instruction &Instr) {
   case OpCode::I64__atomic__rmw8__cmpxchg_u:
   case OpCode::I64__atomic__rmw16__cmpxchg_u:
   case OpCode::I64__atomic__rmw32__cmpxchg_u:
-    if (auto Res = readU32(Instr.getMemoryAlign()); unlikely(!Res)) {
-      return Unexpect(Res);
-    }
-    return readU32(Instr.getMemoryOffset());
+    return readMemImmediate();
 
   default:
     return logLoadError(ErrCode::IllegalOpCode, Instr.getOffset(),
