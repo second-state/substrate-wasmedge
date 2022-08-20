@@ -9,7 +9,7 @@ use std::{
 	collections::HashMap,
 	sync::{Arc, Mutex},
 };
-use wasmedge_sys::ImportInstance;
+use wasmedge_sys::AsImport;
 
 struct Wrapper {
 	host_state: *mut Option<HostState>,

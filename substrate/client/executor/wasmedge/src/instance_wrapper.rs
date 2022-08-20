@@ -225,6 +225,10 @@ impl InstanceWrapper {
 		self.host_state = host_state;
 	}
 
+	pub fn take_host_state(&mut self) -> Option<HostState> {
+		self.host_state.take()
+	}
+
 	/// If possible removes physical backing from the allocated linear memory which
 	/// leads to returning the memory back to the system; this also zeroes the memory
 	/// as a side-effect.

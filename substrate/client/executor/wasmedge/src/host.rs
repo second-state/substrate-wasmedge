@@ -1,7 +1,7 @@
 use crate::util;
 use codec::{Decode, Encode};
 use log::trace;
-use sc_allocator::FreeingBumpHeapAllocator;
+use sc_allocator::{AllocationStats,FreeingBumpHeapAllocator};
 use sc_executor_common::{
 	error::{Result, WasmError},
 	sandbox::{self, SupervisorFuncIndex},
@@ -43,6 +43,10 @@ impl HostState {
 	/// Takes the error message out of the host state, leaving a `None` in its place.
 	pub fn take_panic_message(&mut self) -> Option<String> {
 		self.panic_message.take()
+	}
+
+	pub(crate) fn allocation_stats(&self) -> AllocationStats {
+		self.allocator.stats()
 	}
 
 	pub fn allocator(&mut self) -> &mut FreeingBumpHeapAllocator {

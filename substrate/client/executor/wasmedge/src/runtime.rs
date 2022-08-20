@@ -1,5 +1,5 @@
 use crate::{host::HostState, instance_wrapper::InstanceWrapper, util};
-use sc_allocator::FreeingBumpHeapAllocator;
+use sc_allocator::{AllocationStats, FreeingBumpHeapAllocator};
 use sc_executor_common::{
 	error::{Result, WasmError},
 	runtime_blob::{
@@ -52,6 +52,7 @@ pub struct Config {
 /// See [here][stack_height] for more details of the instrumentation
 ///
 /// [stack_height]: https://github.com/paritytech/wasm-utils/blob/d9432baf/src/stack_height/mod.rs#L1-L50
+#[derive(Clone)]
 pub struct DeterministicStackLimit {
 	/// A number of logical "values" that can be pushed on the wasm stack. A trap will be triggered
 	/// if exceeded.
@@ -60,6 +61,7 @@ pub struct DeterministicStackLimit {
 	pub logical_max: u32,
 }
 
+#[derive(Clone)]
 pub struct Semantics {
 	/// Enabling this will lead to some optimization shenanigans that make calling [`WasmInstance`]
 	/// extremely fast.
@@ -213,8 +215,13 @@ impl InstanceCreator {
 	}
 }
 
-impl WasmInstance for WasmEdgeInstance {
-	fn call(&mut self, method: InvokeMethod, data: &[u8]) -> Result<Vec<u8>> {
+impl WasmEdgeInstance {
+	fn call_impl(
+		&mut self,
+		method: InvokeMethod,
+		data: &[u8],
+		allocation_stats: &mut Option<AllocationStats>,
+	) -> Result<Vec<u8>> {
 		match &mut self.strategy {
 			Strategy::FastInstanceReuse {
 				instance_wrapper,
@@ -233,7 +240,7 @@ impl WasmInstance for WasmEdgeInstance {
 				globals_snapshot.apply(&mut InstanceGlobals { instance: instance_wrapper });
 				let allocator = FreeingBumpHeapAllocator::new(*heap_base);
 
-				let result = perform_call(data, instance_wrapper, method, allocator);
+				let result = perform_call(data, instance_wrapper, method, allocator, allocation_stats);
 
 				// Signal to the OS that we are done with the linear memory and that it can be
 				// reclaimed.
@@ -247,9 +254,21 @@ impl WasmInstance for WasmEdgeInstance {
 
 				let allocator = FreeingBumpHeapAllocator::new(heap_base);
 
-				perform_call(data, &mut instance_creator.instance_wrapper, method, allocator)
+				perform_call(data, &mut instance_creator.instance_wrapper, method, allocator, allocation_stats)
 			},
 		}
+	}
+}
+
+impl WasmInstance for WasmEdgeInstance {
+	fn call_with_allocation_stats(
+		&mut self,
+		method: InvokeMethod,
+		data: &[u8],
+	) -> (Result<Vec<u8>>, Option<AllocationStats>) {
+		let mut allocation_stats = None;
+		let result = self.call_impl(method, data, &mut allocation_stats);
+		(result, allocation_stats)
 	}
 
 	fn get_global_const(&mut self, name: &str) -> Result<Option<Value>> {
@@ -380,6 +399,7 @@ unsafe fn do_create_runtime<H>(
 where
 	H: HostFunctions,
 {
+	println!("========================Debug WasmEdge========================");
 	let loader = wasmedge_sys::Loader::create(common_config(&config.semantics)?).map_err(|e| {
 		WasmError::Other(format!("fail to create a WasmEdge Loader context: {}", e))
 	})?;
@@ -484,6 +504,7 @@ fn perform_call(
 	instance_wrapper: &mut InstanceWrapper,
 	method: InvokeMethod,
 	mut allocator: FreeingBumpHeapAllocator,
+	allocation_stats: &mut Option<AllocationStats>,
 ) -> Result<Vec<u8>> {
 	let (data_ptr, data_len) = inject_input_data(instance_wrapper, &mut allocator, data)?;
 
@@ -494,7 +515,10 @@ fn perform_call(
 	let ret = instance_wrapper.call(method, data_ptr, data_len).map(unpack_ptr_and_len);
 
 	// Reset the host state
-	instance_wrapper.set_host_state(None);
+	let host_state = instance_wrapper.take_host_state().expect(
+		"the host state is always set before calling into WASM so it can't be None here; qed",
+	);
+	*allocation_stats = Some(host_state.allocation_stats());
 
 	let (output_ptr, output_len) = ret?;
 	let output = extract_output_data(instance_wrapper, output_ptr, output_len)?;

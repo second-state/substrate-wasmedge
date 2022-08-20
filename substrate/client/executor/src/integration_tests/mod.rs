@@ -127,6 +127,18 @@ macro_rules! test_wasm_execution_sandbox {
 			}
 
 			#[test]
+			#[cfg(feature = "wasmedge")]
+			fn [<$method_name _wasmedge_host_executor>]() {
+				$method_name(WasmExecutionMethod::CompiledWasmedge, "_host");
+			}
+
+			#[test]
+			#[cfg(feature = "wasmedge")]
+			fn [<$method_name _wasmedge_embedded_executor>]() {
+				$method_name(WasmExecutionMethod::CompiledWasmedge, "_embedded");
+			}
+
+			#[test]
 			#[cfg(feature = "wasmtime")]
 			fn [<$method_name _compiled_pooling_cow_host_executor>]() {
 				$method_name(WasmExecutionMethod::Compiled {
@@ -596,6 +608,10 @@ fn should_trap_when_heap_exhausted(wasm_method: WasmExecutionMethod) {
 		Error::RuntimePanicked(error) if wasm_method == WasmExecutionMethod::Interpreted => {
 			assert_eq!(error, r#"Failed to allocate memory: "Allocator ran out of space""#);
 		},
+		#[cfg(feature = "wasmedge")]
+		Error::AbortedDueToPanic(error) if wasm_method == WasmExecutionMethod::CompiledWasmedge => {
+			assert_eq!(error.message, r#"Runtime memory exhausted."#);
+		},
 		error => panic!("unexpected error: {:?}", error),
 	}
 }
@@ -923,7 +939,7 @@ fn unreachable_intrinsic(wasm_method: WasmExecutionMethod) {
 				#[cfg(feature = "wasmtime")]
 				WasmExecutionMethod::Compiled { .. } => "wasm trap: wasm `unreachable` instruction executed",
 				#[cfg(feature = "wasmedge")]
-				WasmExecutionMethod::CompiledWasmedge => "...",
+				WasmExecutionMethod::CompiledWasmedge => "unreachable",
 			};
 			assert_eq!(error.message, expected);
 		},
