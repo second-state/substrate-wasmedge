@@ -25,8 +25,8 @@ This project contains several folders:
 2. It is recommended to use the following command to install [WasmEdge](https://github.com/WasmEdge/WasmEdge). However, you can also follow this [document](https://wasmedge.org/book/en/start/install.html) to install.
 
    ```bash
-   cd WasmEdge/utils
-   ./install.sh
+   $ cd WasmEdge/utils
+   $ ./install.sh
    ```
 
 3. For the sake of simplicity, we currently use the following approach to resolve the version dependency of rust crates:
@@ -39,8 +39,14 @@ This project contains several folders:
 Using [WasmEdge](https://github.com/WasmEdge/WasmEdge) as the Executor:
 
 ```bash
-cd substrate-node-template
-cargo run --release --bin node-template -- --dev --wasm-execution=compiledWasmedge
+$ cd substrate-node-template
+$ cargo run --release --bin node-template -- \
+  --dev \
+  --wasm-execution=compiledWasmedge \
+  --validator \
+  --execution=Wasm \
+  --tmp \
+  --unsafe-ws-external
 ```
 
 If you see the following message, then you've run it successfully! Congratulations!
@@ -57,7 +63,7 @@ If you see the following message, then you've run it successfully! Congratulatio
 By the way, you can also use [wasmtime](https://github.com/bytecodealliance/wasmtime) as the Executor in the following way:
 
 ```bash
-cd substrate-node-template
-cargo run --release --bin node-template -- --dev --wasm-execution=compiled
+$ cd substrate-node-template
+$ cargo run --release --bin node-template -- --dev --wasm-execution=compiled
 ```
 
