@@ -150,7 +150,7 @@ pub(crate) fn prepare_imports(
 				}
 			};
 
-			let func = wasmedge_sys::Function::create_single_thread(&host_func_ty, Box::new(function_static), 0)
+			let func = wasmedge_sys::Function::create(&host_func_ty, Box::new(function_static), 0)
 				.map_err(|e| {
 					WasmError::Other(format!(
 						"failed to register host function '{}' into WASM: {}",
@@ -170,7 +170,7 @@ pub(crate) fn prepare_imports(
 					Vec<wasmedge_sys::WasmValue>,
 					u8,
 				> { Err(0) };
-				let func = wasmedge_sys::Function::create_single_thread(
+				let func = wasmedge_sys::Function::create(
 					&wasmedge_sys::FuncType::create([], []).map_err(|e| {
 						WasmError::Other(format!(
 							"fail to create a WasmEdge FuncType context: {}",
