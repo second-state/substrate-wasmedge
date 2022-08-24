@@ -50,7 +50,7 @@ pub enum WasmExecutionMethod {
 		/// The instantiation strategy to use.
 		instantiation_strategy: sc_executor_wasmtime::InstantiationStrategy,
 	},
-	
+
 	/// Uses the WasmEdge compiled runtime.
 	#[cfg(feature = "wasmedge")]
 	CompiledWasmedge,
@@ -354,7 +354,7 @@ where
 				},
 			)
 			.map(|runtime| -> Arc<dyn WasmModule> { Arc::new(runtime) })
-		}
+		},
 	}
 }
 

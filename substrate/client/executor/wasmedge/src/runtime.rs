@@ -155,7 +155,10 @@ impl WasmModule for WasmEdgeRuntime {
 				heap_base,
 			}
 		} else {
-			Strategy::RecreateInstance(InstanceCreator { instance_wrapper, module: self.module.clone() })
+			Strategy::RecreateInstance(InstanceCreator {
+				instance_wrapper,
+				module: self.module.clone(),
+			})
 		};
 
 		Ok(Box::new(WasmEdgeInstance { strategy }))
@@ -240,7 +243,8 @@ impl WasmEdgeInstance {
 				globals_snapshot.apply(&mut InstanceGlobals { instance: instance_wrapper });
 				let allocator = FreeingBumpHeapAllocator::new(*heap_base);
 
-				let result = perform_call(data, instance_wrapper, method, allocator, allocation_stats);
+				let result =
+					perform_call(data, instance_wrapper, method, allocator, allocation_stats);
 
 				// Signal to the OS that we are done with the linear memory and that it can be
 				// reclaimed.
@@ -254,7 +258,13 @@ impl WasmEdgeInstance {
 
 				let allocator = FreeingBumpHeapAllocator::new(heap_base);
 
-				perform_call(data, &mut instance_creator.instance_wrapper, method, allocator, allocation_stats)
+				perform_call(
+					data,
+					&mut instance_creator.instance_wrapper,
+					method,
+					allocator,
+					allocation_stats,
+				)
 			},
 		}
 	}
@@ -273,9 +283,8 @@ impl WasmInstance for WasmEdgeInstance {
 
 	fn get_global_const(&mut self, name: &str) -> Result<Option<Value>> {
 		match &mut self.strategy {
-			Strategy::FastInstanceReuse { instance_wrapper, .. } => {
-				instance_wrapper.get_global_val(name)
-			},
+			Strategy::FastInstanceReuse { instance_wrapper, .. } =>
+				instance_wrapper.get_global_val(name),
 			Strategy::RecreateInstance(ref mut instance_creator) => {
 				instance_creator.instantiate()?;
 				instance_creator.instance_wrapper.get_global_val(name)
@@ -290,9 +299,8 @@ impl WasmInstance for WasmEdgeInstance {
 				// associated with it.
 				None
 			},
-			Strategy::FastInstanceReuse { instance_wrapper, .. } => {
-				Some(instance_wrapper.base_ptr())
-			},
+			Strategy::FastInstanceReuse { instance_wrapper, .. } =>
+				Some(instance_wrapper.base_ptr()),
 		}
 	}
 }
@@ -434,9 +442,13 @@ where
 		},
 	};
 
-	let validator = wasmedge_sys::Validator::create(common_config(&config.semantics)?)
-		.map_err(|e| WasmError::Other(format!("fail to create a WasmEdge Validator context: {}", e)))?;
-	validator.validate(&module).map_err(|e| WasmError::Other(format!("fail to validate the module: {}", e)))?;
+	let validator =
+		wasmedge_sys::Validator::create(common_config(&config.semantics)?).map_err(|e| {
+			WasmError::Other(format!("fail to create a WasmEdge Validator context: {}", e))
+		})?;
+	validator
+		.validate(&module)
+		.map_err(|e| WasmError::Other(format!("fail to validate the module: {}", e)))?;
 
 	Ok(WasmEdgeRuntime {
 		snapshot_data,

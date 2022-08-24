@@ -1,7 +1,7 @@
 use crate::util;
 use codec::{Decode, Encode};
 use log::trace;
-use sc_allocator::{AllocationStats,FreeingBumpHeapAllocator};
+use sc_allocator::{AllocationStats, FreeingBumpHeapAllocator};
 use sc_executor_common::{
 	error::{Result, WasmError},
 	sandbox::{self, SupervisorFuncIndex},
@@ -165,7 +165,7 @@ impl<'a> Sandbox for HostContext<'a> {
 		if util::write_memory_from(util::memory_slice_mut(&mut self.memory), buf_ptr, &buffer)
 			.is_err()
 		{
-			return Ok(sandbox_env::ERR_OUT_OF_BOUNDS);
+			return Ok(sandbox_env::ERR_OUT_OF_BOUNDS)
 		}
 
 		Ok(sandbox_env::ERR_OK)
@@ -188,7 +188,7 @@ impl<'a> Sandbox for HostContext<'a> {
 		};
 
 		if sandboxed_memory.write_from(Pointer::new(offset as u32), &buffer).is_err() {
-			return Ok(sandbox_env::ERR_OUT_OF_BOUNDS);
+			return Ok(sandbox_env::ERR_OUT_OF_BOUNDS)
 		}
 
 		Ok(sandbox_env::ERR_OK)
@@ -237,7 +237,7 @@ impl<'a> Sandbox for HostContext<'a> {
 				// Serialize return value and write it back into the memory.
 				sp_wasm_interface::ReturnValue::Value(val.into()).using_encoded(|val| {
 					if val.len() > return_val_len as usize {
-						return Err("Return value buffer is too small".into());
+						return Err("Return value buffer is too small".into())
 					}
 					<HostContext as FunctionContext>::write_memory(self, return_val, val)
 						.map_err(|_| "can't write return value")?;
@@ -263,7 +263,9 @@ impl<'a> Sandbox for HostContext<'a> {
 	) -> sp_wasm_interface::Result<u32> {
 		// Extract a dispatch thunk from the instance's table by the specified index.
 		let dispatch_thunk = Arc::new(
-			self.table.as_ref().ok_or("failed to get WASM table named '__indirect_function_table")?
+			self.table
+				.as_ref()
+				.ok_or("failed to get WASM table named '__indirect_function_table")?
 				.get_data(dispatch_thunk_id)
 				.map_err(|_| "dispatch_thunk_id is out of bounds")?
 				.func_ref()

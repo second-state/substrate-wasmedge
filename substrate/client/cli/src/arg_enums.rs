@@ -137,7 +137,8 @@ pub fn execution_method_from_cli(
 			},
 		},
 		#[cfg(feature = "wasmedge")]
-		WasmExecutionMethod::CompiledWasmedge => sc_service::config::WasmExecutionMethod::CompiledWasmedge,
+		WasmExecutionMethod::CompiledWasmedge =>
+			sc_service::config::WasmExecutionMethod::CompiledWasmedge,
 		#[cfg(not(feature = "wasmtime"))]
 		WasmExecutionMethod::Compiled => panic!(
 			"Substrate must be compiled with \"wasmtime\" feature for compiled Wasm execution"
