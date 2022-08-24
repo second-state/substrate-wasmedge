@@ -29,11 +29,6 @@ This project contains several folders:
    $ ./install.sh
    ```
 
-3. For the sake of simplicity, we currently use the following approach to resolve the version dependency of rust crates:
-
-   * Manually replace the path in [`config.toml`](https://github.com/second-state/substrate-wasmedge/blob/main/config.toml) with the path to your local `substrate-wasmedge` project.
-   * Put [`config.toml`](https://github.com/second-state/substrate-wasmedge/blob/main/config.toml) under `~/.cargo`. This is a temporary approach to replace the substrate pallet used by node-template.
-
 ## Run
 
 Using [WasmEdge](https://github.com/WasmEdge/WasmEdge) as the Executor:

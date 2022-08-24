@@ -1,4 +1,4 @@
-[patch."https://github.com/paritytech/substrate.git"]
+[patch."https://github.com/second-state/substrate-wasmedge.git"]
 substrate-test-utils = { path = "/root/substrate-wasmedge/substrate/test-utils" }
 substrate-test-runtime = { path = "/root/substrate-wasmedge/substrate/test-utils/runtime" }
 substrate-test-runtime-transaction-pool = { path = "/root/substrate-wasmedge/substrate/test-utils/runtime/transaction-pool" }
