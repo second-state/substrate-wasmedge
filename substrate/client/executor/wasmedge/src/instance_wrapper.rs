@@ -77,7 +77,7 @@ impl InstanceWrapper {
 				})?;
 
 				check_signature1(&func)?;
-				
+
 				func.call(&mut self.executor, vec![data_ptr, data_len])
 			},
 			InvokeMethod::Table(func_ref) => {
@@ -234,7 +234,7 @@ impl InstanceWrapper {
 	/// as a side-effect.
 	pub fn decommit(&mut self) {
 		if self.memory().size() == 0 {
-			return;
+			return
 		}
 
 		cfg_if::cfg_if! {
@@ -303,7 +303,7 @@ fn check_signature1(func: &wasmedge_sys::Function) -> Result<()> {
 	let returns: Vec<ValType> = func_type.returns_type_iter().collect();
 
 	if params != vec![ValType::I32, ValType::I32] || returns != [ValType::I64] {
-		return Err(Error::Other(format!("Invalid signature for direct entry point")));
+		return Err(Error::Other(format!("Invalid signature for direct entry point")))
 	}
 	Ok(())
 }
@@ -317,7 +317,7 @@ fn check_signature2(func_ref: &wasmedge_sys::FuncRef) -> Result<()> {
 	let returns: Vec<ValType> = func_type.returns_type_iter().collect();
 
 	if params != vec![ValType::I32, ValType::I32] || returns != [ValType::I64] {
-		return Err(Error::Other(format!("Invalid signature for direct entry point")));
+		return Err(Error::Other(format!("Invalid signature for direct entry point")))
 	}
 	Ok(())
 }
@@ -331,7 +331,7 @@ fn check_signature3(func_ref: &wasmedge_sys::FuncRef) -> Result<()> {
 	let returns: Vec<ValType> = func_type.returns_type_iter().collect();
 
 	if params != vec![ValType::I32, ValType::I32, ValType::I32] || returns != [ValType::I64] {
-		return Err(Error::Other(format!("Invalid signature for direct entry point")));
+		return Err(Error::Other(format!("Invalid signature for direct entry point")))
 	}
 	Ok(())
 }

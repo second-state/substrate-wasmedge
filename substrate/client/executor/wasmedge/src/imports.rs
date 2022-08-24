@@ -37,20 +37,19 @@ pub(crate) fn prepare_imports(
 				"host doesn't provide any imports from non-env module: {}:{}",
 				import_ty.module_name(),
 				name,
-			)));
+			)))
 		}
 
 		match import_ty.ty() {
 			Ok(wasmedge_types::ExternalInstanceType::Func(func_ty)) => {
 				pending_func_imports.insert(name.into_owned(), (import_ty, func_ty));
 			},
-			_ => {
+			_ =>
 				return Err(WasmError::Other(format!(
 					"host doesn't provide any non function imports: {}:{}",
 					import_ty.module_name(),
 					name,
-				)))
-			},
+				))),
 		};
 	}
 
@@ -79,7 +78,7 @@ pub(crate) fn prepare_imports(
 					"signature mismatch for: {}:{}",
 					import_ty.module_name(),
 					name,
-				)));
+				)))
 			}
 
 			let host_state = instance_wrapper.host_state_ptr();
@@ -107,22 +106,22 @@ pub(crate) fn prepare_imports(
 							))
 						})
 						.unwrap(),
-					instance
-						.get_table("__indirect_function_table").ok(),
+					instance.get_table("__indirect_function_table").ok(),
 					host_state,
 				);
 
 				let unwind_result = {
-					// `from_wasmedge_val` panics if it encounters a value that doesn't fit into the values
-					// available in substrate.
+					// `from_wasmedge_val` panics if it encounters a value that doesn't fit into the
+					// values available in substrate.
 					//
-					// This, however, cannot happen since the signature of this function is created from
-					// a `dyn Function` signature of which cannot have a non substrate value by definition.
+					// This, however, cannot happen since the signature of this function is created
+					// from a `dyn Function` signature of which cannot have a non substrate value by
+					// definition.
 					let mut params = inputs.iter().cloned().map(util::from_wasmedge_val);
-					
-					std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| 
+
+					std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
 						host_func.execute(&mut host_context, &mut params)
-					))
+					}))
 				};
 				let execution_result = match unwind_result {
 					Ok(execution_result) => execution_result,
@@ -194,7 +193,7 @@ pub(crate) fn prepare_imports(
 			return Err(WasmError::Other(format!(
 				"runtime requires function imports which are not present on the host: {}",
 				names
-			)));
+			)))
 		}
 	}
 
