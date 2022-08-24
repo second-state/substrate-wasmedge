@@ -1,0 +1,35 @@
+name: wasmedge_executor
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test_wasmedge_executor:
+    name: "Test WasmEdge Executor"
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      
+      - name: Install Nightly Rust
+        run: |
+          rustup update nightly
+          rustup target add wasm32-unknown-unknown --toolchain nightly
+      
+      - name: Build WasmEdge
+        run: |
+          curl -sSf https://raw.githubusercontent.com/WasmEdge/WasmEdge/master/utils/install.sh | bash
+
+      - name: Build WasmEdge Executor
+        run: |
+          cd substrate/client/executor/wasmedge
+          cargo b
