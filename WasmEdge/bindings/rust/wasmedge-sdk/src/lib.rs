@@ -18,7 +18,8 @@
 //!
 //! | wasmedge-sdk  | WasmEdge lib  | wasmedge-sys  | wasmedge-types|
 //! | :-----------: | :-----------: | :-----------: | :-----------: |
-//! | 0.3.0         | 0.10.1        | 0.8           | 0.2           |
+//! | 0.4.0         | 0.11.0        | 0.9           | 0.2.1         |
+//! | 0.3.0         | 0.10.1        | 0.8           | 0.2.0         |
 //! | 0.1.0         | 0.10.0        | 0.7           | 0.1           |
 //!
 //! ## Build
@@ -42,13 +43,11 @@
 //!    |   `-- wasmedgec
 //!    |-- include
 //!    |   `-- wasmedge
-//!    |       |-- dense_enum_map.h
 //!    |       |-- enum.inc
 //!    |       |-- enum_configure.h
 //!    |       |-- enum_errcode.h
 //!    |       |-- enum_types.h
 //!    |       |-- int128.h
-//!    |       |-- spare_enum_map.h
 //!    |       |-- version.h
 //!    |       `-- wasmedge.h
 //!    `-- lib64
@@ -56,7 +55,7 @@
 //!        `-- wasmedge
 //!            `-- libwasmedgePluginWasmEdgeProcess.so
 //!
-//!    5 directories, 13 files
+//!    5 directories, 11 files
 //!    ```
 //!
 //! ### Enable WasmEdge Plugins
@@ -75,9 +74,7 @@
 //!  // If the version of rust used is less than v1.63, please uncomment the follow attribute.
 //!  // #![feature(explicit_generic_args_with_impl_trait)]
 //!
-//!  use wasmedge_sdk::{Executor, FuncTypeBuilder, ImportObjectBuilder, Module, Store};
-//!  use wasmedge_sys::WasmValue;
-//!  use wasmedge_types::wat2wasm;
+//!  use wasmedge_sdk::{Executor, FuncTypeBuilder, ImportObjectBuilder, Module, Store, error::HostFuncError, WasmValue, wat2wasm, CallingFrame};
 //!  
 //!  #[cfg_attr(test, test)]
 //!  fn main() -> anyhow::Result<()> {
@@ -101,7 +98,7 @@
 //!  
 //!      // We define a function to act as our "env" "say_hello" function imported in the
 //!      // Wasm program above.
-//!      fn say_hello_world(_inputs: Vec<WasmValue>) -> Result<Vec<WasmValue>, u8> {
+//!      fn say_hello_world(_: &CallingFrame, _: Vec<WasmValue>) -> Result<Vec<WasmValue>, HostFuncError> {
 //!          println!("Hello, world!");
 //!  
 //!          Ok(vec![])
@@ -201,6 +198,8 @@ pub use wasmedge_types::{
 
 /// WebAssembly value type.
 pub type WasmValue = wasmedge_sys::types::WasmValue;
+
+pub type CallingFrame = wasmedge_sys::CallingFrame;
 
 /// The object that is used to perform a [host function](crate::Func) is required to implement this trait.
 pub trait Engine {
