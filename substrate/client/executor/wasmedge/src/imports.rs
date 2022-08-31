@@ -9,7 +9,8 @@ use std::{
 	collections::HashMap,
 	sync::{Arc, Mutex},
 };
-use wasmedge_sys::AsImport;
+use wasmedge_sys::{AsImport, CallingFrame};
+use wasmedge_types::error::HostFuncError;
 
 struct Wrapper {
 	host_state: *mut Option<HostState>,
@@ -86,9 +87,9 @@ pub(crate) fn prepare_imports(
 
 			let s = Arc::new(Mutex::new(Wrapper { host_state, instance }));
 			let returns_len = host_func_ty.returns_len();
-			let function_static = move |inputs: Vec<wasmedge_sys::WasmValue>| -> std::result::Result<
+			let function_static = move |_: &CallingFrame, inputs: Vec<wasmedge_sys::WasmValue>| -> std::result::Result<
 				Vec<wasmedge_sys::WasmValue>,
-				u8,
+				HostFuncError,
 			> {
 				let mut wrapper = s.lock().unwrap();
 				let host_state = unsafe { &mut *(wrapper.host_state) };
@@ -125,7 +126,7 @@ pub(crate) fn prepare_imports(
 				};
 				let execution_result = match unwind_result {
 					Ok(execution_result) => execution_result,
-					Err(_) => return Err(0),
+					Err(_) => return Err(HostFuncError::User(1)),
 				};
 
 				match execution_result {
@@ -145,7 +146,7 @@ pub(crate) fn prepare_imports(
 						);
 						Ok(vec![])
 					},
-					Err(_) => Err(0),
+					Err(_) => Err(HostFuncError::User(1)),
 				}
 			};
 
@@ -165,10 +166,10 @@ pub(crate) fn prepare_imports(
 	if !missing_func_imports.is_empty() {
 		if allow_missing_func_imports {
 			for (name, (_, _)) in missing_func_imports {
-				let function_static = move |_: Vec<wasmedge_sys::WasmValue>| -> std::result::Result<
+				let function_static = move |_: &CallingFrame, _: Vec<wasmedge_sys::WasmValue>| -> std::result::Result<
 					Vec<wasmedge_sys::WasmValue>,
-					u8,
-				> { Err(0) };
+					HostFuncError,
+				> { Err(HostFuncError::User(1)) };
 				let func = wasmedge_sys::Function::create(
 					&wasmedge_sys::FuncType::create([], []).map_err(|e| {
 						WasmError::Other(format!(

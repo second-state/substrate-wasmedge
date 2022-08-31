@@ -390,7 +390,7 @@ pub fn prepare_runtime_artifact(
 		.map_err(|e| {
 			WasmError::Other(format!("fail to create a WasmEdge Compiler context: {}", e))
 		})?
-		.compile(path_temp, compiled_artifact_path)
+		.compile_from_file(path_temp, compiled_artifact_path)
 		.map_err(|e| WasmError::Other(format!("fail to compile the input WASM file: {}", e)))?;
 
 	Ok(())
