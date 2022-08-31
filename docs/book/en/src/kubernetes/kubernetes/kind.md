@@ -12,14 +12,14 @@ If KinD is installed we can directly start with the example from [here](https://
 # Create a "WASM in KinD" Cluster
 kind create cluster --image ghcr.io/liquid-reply/kind-crun-wasm:v1.23.0
 # Run the example
-kubectl run -it --rm --restart=Never wasi-demo --image=hydai/wasm-wasi-example:with-wasm-annotation --annotations="module.wasm.image/variant=compat-smart" /wasi_example_main.wasm 50000000
+kubectl run -it --rm --restart=Never wasi-demo --image=wasmedge/example-wasi:latest --annotations="module.wasm.image/variant=compat-smart" /wasi_example_main.wasm 50000000
 ```
 
 In the rest of this section, we will explain how to create a KinD node image with wasmedge support.
 
 ## Build crun
 
-KinD uses the kindest/node image for the control plane and worker nodes. The image contains containerd as CRI and runc as OCI Runtime. To enable WasmEdge support we replace runc with crun.
+KinD uses the `kindest/node` image for the control plane and worker nodes. The image contains containerd as CRI and runc as OCI Runtime. To enable WasmEdge support we replace `runc` with `crun`.
 
 For the node image we only need the crun binary and not the entire build toolchain. Therefore we use a multistage dockerfile where we create crun in the first step and only copy the crun binary to the node image.
 
@@ -64,7 +64,7 @@ FROM kindest/node:v1.23.0
 
 COPY config.toml /etc/containerd/config.toml
 COPY --from=builder /data/crun/crun /usr/local/sbin/runc
-COPY --from=builder /usr/local/lib/libwasmedge_c.so /usr/local/lib/libwasmedge_c.so
+COPY --from=builder /usr/local/lib/libwasmedge.so /usr/local/lib/libwasmedge.so
 
 RUN echo "Installing Packages ..." \
     && bash -c 'cat <<< $(jq "del(.hooks.createContainer)" /etc/containerd/cri-base.json) > /etc/containerd/cri-base.json' \
@@ -79,5 +79,5 @@ Finally we can build a new `node-wasmedge` image. To test it, we create a kind c
 docker build -t node-wasmedge .
 kind create cluster --image node-wasmedge
 # Now you can run the example to validate your cluster
-kubectl run -it --rm --restart=Never wasi-demo --image=hydai/wasm-wasi-example:with-wasm-annotation --annotations="module.wasm.image/variant=compat-smart" /wasi_example_main.wasm 50000000
+kubectl run -it --rm --restart=Never wasi-demo --image=wasmedge/example-wasi:latest --annotations="module.wasm.image/variant=compat-smart" /wasi_example_main.wasm 50000000
 ```

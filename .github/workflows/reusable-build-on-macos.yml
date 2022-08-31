@@ -39,13 +39,11 @@ jobs:
           echo "BUILD_TYPE=Release" | tee -a $GITHUB_ENV
       - name: Build WasmEdge
         run: |
-          export PATH="/usr/local/opt/llvm/bin:$PATH"
-          export LDFLAGS="-L/usr/local/opt/llvm/lib -Wl,-rpath,/usr/local/opt/llvm/lib"
-          export CPPFLAGS="-I/usr/local/opt/llvm/include"
+          export LLVM_DIR="/usr/local/opt/llvm/lib/cmake"
           export CC=clang
           export CXX=clang++
           rm -rf build
-          cmake -Bbuild -GNinja -DCMAKE_BUILD_TYPE=$BUILD_TYPE -DWASMEDGE_BUILD_TESTS=$BUILD_TESTS -DWASMEDGE_LINK_TOOLS_STATIC=ON -DWASMEDGE_BUILD_PACKAGE="TGZ" .
+          cmake -Bbuild -GNinja -DCMAKE_BUILD_TYPE=$BUILD_TYPE -DWASMEDGE_BUILD_TESTS=$BUILD_TESTS -DWASMEDGE_LINK_LLVM_STATIC=ON -DWASMEDGE_BUILD_PACKAGE="TGZ" .
           cmake --build build
       - name: Test WasmEdge
         continue-on-error: true
@@ -66,8 +64,8 @@ jobs:
           otool -L ./build/tools/wasmedge/wasmedge
           echo "otool -L ./build/tools/wasmedge/wasmedgec:"
           otool -L ./build/tools/wasmedge/wasmedgec
-          echo "otool -L ./build/lib/api/libwasmedge_c.dylib:"
-          otool -L ./build/lib/api/libwasmedge_c.dylib
+          echo "otool -L ./build/lib/api/libwasmedge.dylib:"
+          otool -L ./build/lib/api/libwasmedge.dylib
           echo "./build/tools/wasmedge/wasmedgec examples/wasm/fibonacci.wasm fib.dylib"
           ./build/tools/wasmedge/wasmedgec examples/wasm/fibonacci.wasm fib.dylib
           echo "./build/tools/wasmedge/wasmedge --reactor fib.dylib fib 20"
@@ -85,6 +83,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ inputs.upload_asset_url }}
-          asset_name: WasmEdge-${{ inputs.version }}-darwin_${{ matrix.darwin_version }}_x86_64.tar.gz
+          asset_name: WasmEdge-${{ inputs.version }}-darwin_x86_64.tar.gz
           asset_path: build/WasmEdge-${{ inputs.version }}-Darwin.tar.gz
           asset_content_type: application/x-gzip

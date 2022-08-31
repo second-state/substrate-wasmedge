@@ -16,7 +16,8 @@
 //!
 //! | wasmedge-sdk  | WasmEdge lib  | wasmedge-sys  | wasmedge-types|
 //! | :-----------: | :-----------: | :-----------: | :-----------: |
-//! | 0.3.0         | 0.10.1        | 0.8           | 0.2           |
+//! | 0.4.0         | 0.11.0        | 0.9           | 0.2.1         |
+//! | 0.3.0         | 0.10.1        | 0.8           | 0.2.0         |
 //! | 0.1.0         | 0.10.0        | 0.7           | 0.1           |
 //!
 //! ## Build
@@ -40,13 +41,11 @@
 //!    |   `-- wasmedgec
 //!    |-- include
 //!    |   `-- wasmedge
-//!    |       |-- dense_enum_map.h
 //!    |       |-- enum.inc
 //!    |       |-- enum_configure.h
 //!    |       |-- enum_errcode.h
 //!    |       |-- enum_types.h
 //!    |       |-- int128.h
-//!    |       |-- spare_enum_map.h
 //!    |       |-- version.h
 //!    |       `-- wasmedge.h
 //!    `-- lib64
@@ -54,7 +53,7 @@
 //!        `-- wasmedge
 //!            `-- libwasmedgePluginWasmEdgeProcess.so
 //!
-//!    5 directories, 13 files
+//!    5 directories, 11 files
 //!    ```
 //!
 //! ### Enable WasmEdge Plugins
@@ -141,12 +140,8 @@
 #[macro_use]
 extern crate lazy_static;
 
-use std::{
-    cell::RefCell,
-    collections::HashMap,
-    env,
-    sync::{Arc, Mutex},
-};
+use parking_lot::RwLock;
+use std::{cell::RefCell, collections::HashMap, env, sync::Arc};
 
 #[doc(hidden)]
 #[allow(warnings)]
@@ -164,6 +159,7 @@ pub mod compiler;
 pub mod config;
 #[doc(hidden)]
 pub mod executor;
+pub mod frame;
 #[doc(hidden)]
 pub mod instance;
 #[doc(hidden)]
@@ -190,6 +186,8 @@ pub use compiler::Compiler;
 pub use config::Config;
 #[doc(inline)]
 pub use executor::Executor;
+#[doc(inline)]
+pub use frame::CallingFrame;
 #[cfg(target_os = "linux")]
 #[doc(inline)]
 pub use instance::module::WasmEdgeProcessModule;
@@ -223,11 +221,15 @@ pub use vm::Vm;
 use wasmedge_types::{error, WasmEdgeResult};
 
 /// Type alias for a boxed native function. This type is used in thread-safe cases.
-pub type BoxedFn = Box<dyn Fn(Vec<WasmValue>) -> Result<Vec<WasmValue>, u8> + Send + Sync>;
+pub type BoxedFn = Box<
+    dyn Fn(&CallingFrame, Vec<WasmValue>) -> Result<Vec<WasmValue>, error::HostFuncError>
+        + Send
+        + Sync,
+>;
 
 lazy_static! {
-    static ref HOST_FUNCS: Arc<Mutex<HashMap<usize, BoxedFn>>> =
-        Arc::new(Mutex::new(HashMap::with_capacity(
+    static ref HOST_FUNCS: Arc<RwLock<HashMap<usize, BoxedFn>>> =
+        Arc::new(RwLock::new(HashMap::with_capacity(
             env::var("MAX_HOST_FUNC_LENGTH")
                 .map(|s| s
                     .parse::<usize>()
@@ -237,7 +239,8 @@ lazy_static! {
 }
 
 /// Type alias for a boxed native function. This type is used in non-thread-safe cases.
-pub type BoxedFnSingle = Box<dyn Fn(Vec<WasmValue>) -> Result<Vec<WasmValue>, u8>>;
+pub type BoxedFnSingle =
+    Box<dyn Fn(&CallingFrame, Vec<WasmValue>) -> Result<Vec<WasmValue>, error::HostFuncError>>;
 
 thread_local! {
     static HOST_FUNCS_SINGLE: RefCell<HashMap<usize, BoxedFnSingle>> =
