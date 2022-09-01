@@ -143,6 +143,10 @@ pub fn execution_method_from_cli(
 		WasmExecutionMethod::Compiled => panic!(
 			"Substrate must be compiled with \"wasmtime\" feature for compiled Wasm execution"
 		),
+		#[cfg(not(feature = "wasmedge"))]
+                WasmExecutionMethod::CompiledWasmedge => panic!(
+                        "Substrate must be compiled with \"wasmedge\" feature for compiled Wasm execution"
+                ),
 	}
 }
 
