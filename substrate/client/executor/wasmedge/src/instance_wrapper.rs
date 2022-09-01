@@ -4,25 +4,29 @@ use sc_executor_common::{
 	wasm_runtime::InvokeMethod,
 };
 use sp_wasm_interface::{Pointer, Value, WordSize};
+use wasmedge_sdk::{
+	types::Val, Executor, Func, FuncRef, ImportObject, Instance, Memory, Module, Store,
+};
+use wasmedge_sys::types::WasmValue;
 use wasmedge_types::ValType;
 
 pub struct InstanceWrapper {
-	store: wasmedge_sys::Store,
-	executor: wasmedge_sys::Executor,
-	instance: Option<wasmedge_sys::Instance>,
-	memory: Option<wasmedge_sys::Memory>,
+	store: Store,
+	executor: Executor,
+	instance: Option<Instance>,
+	memory: Option<Memory>,
 	host_state: Option<HostState>,
-	import: Option<wasmedge_sys::ImportObject>,
+	import: Option<ImportObject>,
 }
 
 impl InstanceWrapper {
 	pub fn new(semantics: &crate::runtime::Semantics) -> Result<Self> {
-		let executor =
-			wasmedge_sys::Executor::create(crate::runtime::common_config(semantics)?, None)
-				.map_err(|e| {
-					WasmError::Other(format!("fail to create a WasmEdge Executor context: {}", e))
-				})?;
-		let store = wasmedge_sys::Store::create().map_err(|e| {
+		let executor = Executor::new(Some(&crate::runtime::common_config(semantics)?), None)
+			.map_err(|e| {
+				WasmError::Other(format!("fail to create a WasmEdge Executor context: {}", e))
+			})?;
+
+		let store = Store::new().map_err(|e| {
 			WasmError::Other(format!("fail to create a WasmEdge Store context: {}", e))
 		})?;
 
@@ -36,25 +40,25 @@ impl InstanceWrapper {
 		})
 	}
 
-	pub fn register_import(&mut self, import_obj: wasmedge_sys::ImportObject) -> Result<()> {
+	pub fn register_import(&mut self, import_obj: ImportObject) -> Result<()> {
 		self.import = Some(import_obj);
-		self.executor
-			.register_import_object(&mut self.store, &self.import.as_ref().unwrap())
+		self.store
+			.register_import_module(&mut self.executor, &self.import.as_ref().unwrap())
 			.map_err(|error| {
 				WasmError::Other(format!("failed to register import object: {}", error,))
 			})?;
 		Ok(())
 	}
 
-	pub fn instantiate(&mut self, module: &wasmedge_sys::Module) -> Result<()> {
+	pub fn instantiate(&mut self, module: &Module) -> Result<()> {
 		let instance = self
-			.executor
-			.register_active_module(&mut self.store, &module)
+			.store
+			.register_active_module(&mut self.executor, &module)
 			.map_err(|e| WasmError::Other(format!("failed to register active module: {}", e,)))?;
 
-		let memory = instance.get_memory("memory").map_err(|e| {
-			WasmError::Other(format!("failed to get WASM memory named 'memory': {}", e,))
-		})?;
+		let memory = instance
+			.memory("memory")
+			.ok_or(WasmError::Other(String::from("fail to get WASM memory named 'memory'")))?;
 
 		self.instance = Some(instance);
 		self.memory = Some(memory);
@@ -67,52 +71,55 @@ impl InstanceWrapper {
 		data_ptr: Pointer<u8>,
 		data_len: WordSize,
 	) -> Result<u64> {
-		let data_ptr = wasmedge_sys::WasmValue::from_i32(u32::from(data_ptr) as i32);
-		let data_len = wasmedge_sys::WasmValue::from_i32(u32::from(data_len) as i32);
+		let data_ptr = WasmValue::from_i32(u32::from(data_ptr) as i32);
+		let data_len = WasmValue::from_i32(u32::from(data_len) as i32);
 
 		let res = match method {
 			InvokeMethod::Export(method) => {
-				let func = self.instance().get_func(method).map_err(|error| {
-					WasmError::Other(format!("function is not found: {}", error,))
-				})?;
+				let func = self
+					.instance()
+					.func(method)
+					.ok_or(WasmError::Other(String::from("function is not found")))?;
 
 				check_signature1(&func)?;
 
 				func.call(&mut self.executor, vec![data_ptr, data_len])
 			},
-			InvokeMethod::Table(func_ref) => {
-				let table = self
-					.instance()
-					.get_table("__indirect_function_table")
-					.map_err(|_| Error::NoTable)?;
+			InvokeMethod::Table(func) => {
+				let table =
+					self.instance().table("__indirect_function_table").ok_or(Error::NoTable)?;
 
-				let func_ref = table
-					.get_data(func_ref)
-					.map_err(|_| Error::NoTableEntryWithIndex(func_ref))?
-					.func_ref()
-					.ok_or(Error::FunctionRefIsNull(func_ref))?;
+				let func_ref =
+					match table.get(func).map_err(|_| Error::NoTableEntryWithIndex(func))? {
+						Val::FuncRef(Some(func_ref)) => func_ref,
+						_ => {
+							return Err(Error::FunctionRefIsNull(func));
+						},
+					};
 
 				check_signature2(&func_ref)?;
 
 				func_ref.call(&mut self.executor, vec![data_ptr, data_len])
 			},
 			InvokeMethod::TableWithWrapper { dispatcher_ref, func } => {
-				let table = self
-					.instance()
-					.get_table("__indirect_function_table")
-					.map_err(|_| Error::NoTable)?;
+				let table =
+					self.instance().table("__indirect_function_table").ok_or(Error::NoTable)?;
 
-				let func_ref = table
-					.get_data(dispatcher_ref)
+				let func_ref = match table
+					.get(dispatcher_ref)
 					.map_err(|_| Error::NoTableEntryWithIndex(dispatcher_ref))?
-					.func_ref()
-					.ok_or(Error::FunctionRefIsNull(dispatcher_ref))?;
+				{
+					Val::FuncRef(Some(func_ref)) => func_ref,
+					_ => {
+						return Err(Error::FunctionRefIsNull(dispatcher_ref));
+					},
+				};
 
 				check_signature3(&func_ref)?;
 
 				func_ref.call(
 					&mut self.executor,
-					vec![wasmedge_sys::WasmValue::from_i32(func as i32), data_ptr, data_len],
+					vec![WasmValue::from_i32(func as i32), data_ptr, data_len],
 				)
 			},
 		}
@@ -152,40 +159,34 @@ impl InstanceWrapper {
 	pub fn extract_heap_base(&mut self) -> Result<u32> {
 		let heap_base = self
 			.instance()
-			.get_global("__heap_base")
-			.map_err(|error| {
-				WasmError::Other(format!(
-					"failed to get WASM global named '__heap_base': {}",
-					error,
-				))
-			})?
+			.global("__heap_base")
+			.ok_or(WasmError::Other(String::from("failed to get WASM global named '__heap_base'")))?
 			.get_value();
 
-		Ok(heap_base.to_f32() as u32)
+		if let Val::I32(v) = heap_base {
+			Ok(v as u32)
+		} else {
+			Err(Error::Other(String::from(
+				"the type of WASM global named '__heap_base' is not i32",
+			)))
+		}
 	}
 
 	/// Get the value from a global with the given `name`.
 	pub fn get_global_val(&mut self, name: &str) -> Result<Option<Value>> {
 		let global = self
 			.instance()
-			.get_global(name)
-			.map_err(|error| Error::Other(format!("failed to get WASM global: {}", error,)))?
+			.global(name)
+			.ok_or(Error::Other(String::from("failed to get WASM global")))?
 			.get_value();
 
-		match global.ty() {
-			ValType::I32 => Ok(Some(Value::I32(global.to_i32()))),
-			ValType::I64 => Ok(Some(Value::I64(global.to_i64()))),
-			ValType::F32 => Ok(Some(Value::F32(global.to_f32() as u32))),
-			ValType::F64 => Ok(Some(Value::F64(global.to_f64() as u64))),
+		match global {
+			Val::I32(v) => Ok(Some(Value::I32(v))),
+			Val::I64(v) => Ok(Some(Value::I64(v))),
+			Val::F32(v) => Ok(Some(Value::F32(v as u32))),
+			Val::F64(v) => Ok(Some(Value::F64(v as u64))),
 			_ => Err("Unknown value type".into()),
 		}
-	}
-
-	/// Get a global with the given `name`.
-	pub fn get_global(&mut self, name: &str) -> Result<wasmedge_sys::Global> {
-		self.instance()
-			.get_global(name)
-			.map_err(|error| Error::Other(format!("failed to get WASM global: {}", error,)))
 	}
 
 	/// Returns the pointer to the first byte of the linear memory for this instance.
@@ -195,15 +196,15 @@ impl InstanceWrapper {
 			.expect("failed to returns the const data pointer to the Memory.")
 	}
 
-	pub(crate) fn memory(&self) -> &wasmedge_sys::Memory {
+	pub(crate) fn memory(&self) -> &Memory {
 		self.memory.as_ref().unwrap()
 	}
 
-	pub(crate) fn memory_mut(&mut self) -> &mut wasmedge_sys::Memory {
+	pub(crate) fn memory_mut(&mut self) -> &mut Memory {
 		self.memory.as_mut().unwrap()
 	}
 
-	pub(crate) fn instance(&self) -> &wasmedge_sys::Instance {
+	pub(crate) fn instance(&self) -> &Instance {
 		self.instance.as_ref().unwrap()
 	}
 
@@ -217,8 +218,8 @@ impl InstanceWrapper {
 		&mut self.host_state as *mut Option<HostState>
 	}
 
-	pub fn instance_ptr(&mut self) -> *mut Option<wasmedge_sys::Instance> {
-		&mut self.instance as *mut Option<wasmedge_sys::Instance>
+	pub fn instance_ptr(&mut self) -> *mut Option<Instance> {
+		&mut self.instance as *mut Option<Instance>
 	}
 
 	pub fn set_host_state(&mut self, host_state: Option<HostState>) {
@@ -234,7 +235,7 @@ impl InstanceWrapper {
 	/// as a side-effect.
 	pub fn decommit(&mut self) {
 		if self.memory().size() == 0 {
-			return
+			return;
 		}
 
 		cfg_if::cfg_if! {
@@ -294,44 +295,44 @@ impl InstanceWrapper {
 	}
 }
 
-fn check_signature1(func: &wasmedge_sys::Function) -> Result<()> {
+fn check_signature1(func: &Func) -> Result<()> {
 	let func_type = func
 		.ty()
 		.map_err(|error| WasmError::Other(format!("fail to get the function type: {}", error,)))?;
 
-	let params: Vec<ValType> = func_type.params_type_iter().collect();
-	let returns: Vec<ValType> = func_type.returns_type_iter().collect();
+	let params = func_type.args().unwrap_or(&[]);
+	let returns = func_type.returns().unwrap_or(&[]);
 
-	if params != vec![ValType::I32, ValType::I32] || returns != [ValType::I64] {
-		return Err(Error::Other(format!("Invalid signature for direct entry point")))
+	if params != [ValType::I32, ValType::I32] || returns != [ValType::I64] {
+		return Err(Error::Other("Invalid signature for direct entry point".to_string()));
 	}
 	Ok(())
 }
 
-fn check_signature2(func_ref: &wasmedge_sys::FuncRef) -> Result<()> {
+fn check_signature2(func_ref: &FuncRef) -> Result<()> {
 	let func_type = func_ref
 		.ty()
 		.map_err(|error| WasmError::Other(format!("fail to get the function type: {}", error,)))?;
 
-	let params: Vec<ValType> = func_type.params_type_iter().collect();
-	let returns: Vec<ValType> = func_type.returns_type_iter().collect();
+	let params = func_type.args().unwrap_or(&[]);
+	let returns = func_type.returns().unwrap_or(&[]);
 
 	if params != vec![ValType::I32, ValType::I32] || returns != [ValType::I64] {
-		return Err(Error::Other(format!("Invalid signature for direct entry point")))
+		return Err(Error::Other("Invalid signature for direct entry point".to_string()));
 	}
 	Ok(())
 }
 
-fn check_signature3(func_ref: &wasmedge_sys::FuncRef) -> Result<()> {
+fn check_signature3(func_ref: &FuncRef) -> Result<()> {
 	let func_type = func_ref
 		.ty()
 		.map_err(|error| WasmError::Other(format!("fail to get the function type: {}", error,)))?;
 
-	let params: Vec<ValType> = func_type.params_type_iter().collect();
-	let returns: Vec<ValType> = func_type.returns_type_iter().collect();
+	let params = func_type.args().unwrap_or(&[]);
+	let returns = func_type.returns().unwrap_or(&[]);
 
 	if params != vec![ValType::I32, ValType::I32, ValType::I32] || returns != [ValType::I64] {
-		return Err(Error::Other(format!("Invalid signature for direct entry point")))
+		return Err(Error::Other("Invalid signature for direct entry point".to_string()));
 	}
 	Ok(())
 }

@@ -15,6 +15,11 @@ use std::{
 	path::Path,
 	sync::{Arc, Mutex},
 };
+use wasmedge_sdk::{
+	config::{CommonConfigOptions, CompilerConfigOptions, ConfigBuilder, RuntimeConfigOptions},
+	Compiler, Global, Module,
+};
+use wasmedge_types::{CompilerOptimizationLevel, CompilerOutputFormat};
 
 pub struct Config {
 	/// The WebAssembly standard requires all imports of an instantiated module to be resolved,
@@ -119,7 +124,7 @@ struct InstanceSnapshotData {
 pub struct WasmEdgeRuntime {
 	snapshot_data: Option<InstanceSnapshotData>,
 	host_functions: Vec<&'static dyn Function>,
-	module: Arc<wasmedge_sys::Module>,
+	module: Arc<Module>,
 	config: Config,
 }
 
@@ -170,11 +175,11 @@ struct InstanceGlobals<'a> {
 }
 
 impl<'a> runtime_blob::InstanceGlobals for InstanceGlobals<'a> {
-	type Global = Arc<Mutex<wasmedge_sys::Global>>;
+	type Global = Arc<Mutex<Global>>;
 
 	fn get_global(&mut self, export_name: &str) -> Self::Global {
 		Arc::new(Mutex::new(
-			self.instance.get_global(export_name).expect(
+			self.instance.instance().global(export_name).expect(
 				"get_global is guaranteed to be called with an export name of a global; qed",
 			),
 		))
@@ -200,7 +205,7 @@ pub struct WasmEdgeInstance {
 enum Strategy {
 	FastInstanceReuse {
 		instance_wrapper: Box<InstanceWrapper>,
-		globals_snapshot: GlobalsSnapshot<Arc<Mutex<wasmedge_sys::Global>>>,
+		globals_snapshot: GlobalsSnapshot<Arc<Mutex<Global>>>,
 		data_segments_snapshot: Arc<DataSegmentsSnapshot>,
 		heap_base: u32,
 	},
@@ -209,12 +214,12 @@ enum Strategy {
 
 struct InstanceCreator {
 	instance_wrapper: Box<InstanceWrapper>,
-	module: Arc<wasmedge_sys::Module>,
+	module: Arc<Module>,
 }
 
 impl InstanceCreator {
 	fn instantiate(&mut self) -> Result<()> {
-		Ok(self.instance_wrapper.instantiate(&self.module)?)
+		self.instance_wrapper.instantiate(&self.module)
 	}
 }
 
@@ -283,8 +288,9 @@ impl WasmInstance for WasmEdgeInstance {
 
 	fn get_global_const(&mut self, name: &str) -> Result<Option<Value>> {
 		match &mut self.strategy {
-			Strategy::FastInstanceReuse { instance_wrapper, .. } =>
-				instance_wrapper.get_global_val(name),
+			Strategy::FastInstanceReuse { instance_wrapper, .. } => {
+				instance_wrapper.get_global_val(name)
+			},
 			Strategy::RecreateInstance(ref mut instance_creator) => {
 				instance_creator.instantiate()?;
 				instance_creator.instance_wrapper.get_global_val(name)
@@ -299,8 +305,9 @@ impl WasmInstance for WasmEdgeInstance {
 				// associated with it.
 				None
 			},
-			Strategy::FastInstanceReuse { instance_wrapper, .. } =>
-				Some(instance_wrapper.base_ptr()),
+			Strategy::FastInstanceReuse { instance_wrapper, .. } => {
+				Some(instance_wrapper.base_ptr())
+			},
 		}
 	}
 }
@@ -386,7 +393,7 @@ pub fn prepare_runtime_artifact(
 			WasmError::Other(format!("cannot write the runtime blob bytes into the file: {}", e))
 		})?;
 
-	wasmedge_sys::Compiler::create(common_config(semantics)?)
+	Compiler::new(Some(&common_config(semantics)?))
 		.map_err(|e| {
 			WasmError::Other(format!("fail to create a WasmEdge Compiler context: {}", e))
 		})?
@@ -407,19 +414,19 @@ unsafe fn do_create_runtime<H>(
 where
 	H: HostFunctions,
 {
-	println!("========================Debug WasmEdge========================");
-	let loader = wasmedge_sys::Loader::create(common_config(&config.semantics)?).map_err(|e| {
-		WasmError::Other(format!("fail to create a WasmEdge Loader context: {}", e))
-	})?;
+	println!("========================WasmEdge========================");
+
+	let config_wasmedge = common_config(&config.semantics)?;
 
 	let (module, snapshot_data) = match code_supply_mode {
 		CodeSupplyMode::Fresh(blob) => {
 			let blob = prepare_blob_for_compilation(blob, &config.semantics)?;
 			let serialized_blob = blob.clone().serialize();
 
-			let module = loader.from_bytes(&serialized_blob).map_err(|e| {
-				WasmError::Other(format!("fail to create a WasmEdge Module context: {}", e))
-			})?;
+			let module =
+				Module::from_bytes(Some(&config_wasmedge), &serialized_blob).map_err(|e| {
+					WasmError::Other(format!("fail to create a WasmEdge Module context: {}", e))
+				})?;
 
 			if config.semantics.fast_instance_reuse {
 				let data_segments_snapshot = DataSegmentsSnapshot::take(&blob).map_err(|e| {
@@ -434,21 +441,14 @@ where
 			}
 		},
 		CodeSupplyMode::Precompiled(compiled_artifact_path) => {
-			let module = loader.from_file(compiled_artifact_path).map_err(|e| {
-				WasmError::Other(format!("fail to create a WasmEdge Module context: {}", e))
-			})?;
+			let module = Module::from_file(Some(&config_wasmedge), compiled_artifact_path)
+				.map_err(|e| {
+					WasmError::Other(format!("fail to create a WasmEdge Module context: {}", e))
+				})?;
 
 			(module, None)
 		},
 	};
-
-	let validator =
-		wasmedge_sys::Validator::create(common_config(&config.semantics)?).map_err(|e| {
-			WasmError::Other(format!("fail to create a WasmEdge Validator context: {}", e))
-		})?;
-	validator
-		.validate(&module)
-		.map_err(|e| WasmError::Other(format!("fail to validate the module: {}", e)))?;
 
 	Ok(WasmEdgeRuntime {
 		snapshot_data,
@@ -460,27 +460,38 @@ where
 
 pub fn common_config(
 	semantics: &Semantics,
-) -> std::result::Result<Option<wasmedge_sys::Config>, WasmError> {
-	let mut wasmedge_config = wasmedge_sys::Config::create().map_err(|e| {
-		WasmError::Other(format!("fail to create a WasmEdge Config context: {}", e))
-	})?;
+) -> std::result::Result<wasmedge_sdk::config::Config, WasmError> {
+	let common_options = CommonConfigOptions::default()
+		.bulk_memory_operations(false)
+		.multi_value(false)
+		.mutable_globals(true)
+		.non_trap_conversions(true)
+		.reference_types(false)
+		.sign_extension_operators(true)
+		.simd(false)
+		.threads(false);
 
-	wasmedge_config.set_aot_optimization_level(wasmedge_types::CompilerOptimizationLevel::Os);
+	let compiler_options = CompilerConfigOptions::default()
+		.dump_ir(true)
+		.generic_binary(true)
+		.interruptible(true)
+		.optimization_level(CompilerOptimizationLevel::Os)
+		.out_format(CompilerOutputFormat::Native);
 
+	let mut runtime_options = RuntimeConfigOptions::default();
 	if let Some(max_memory_size) = semantics.max_memory_size {
-		wasmedge_config.set_max_memory_pages((max_memory_size / 64 / 1024) as u32);
+		runtime_options = runtime_options.max_memory_pages((max_memory_size / 64 / 1024) as u32);
 	}
 
-	// Be clear and specific about the extensions we support. If an update brings new features
-	// they should be introduced here as well.
-	wasmedge_config.reference_types(false);
-	wasmedge_config.simd(false);
-	wasmedge_config.bulk_memory_operations(false);
-	wasmedge_config.multi_value(false);
-	wasmedge_config.threads(false);
-	wasmedge_config.memory64(false);
+	let wasmedge_config = ConfigBuilder::new(common_options)
+		.with_compiler_config(compiler_options)
+		.with_runtime_config(runtime_options)
+		.build()
+		.map_err(|e| {
+			WasmError::Other(format!("fail to create a WasmEdge Config context: {}", e))
+		})?;
 
-	Ok(Some(wasmedge_config))
+	Ok(wasmedge_config)
 }
 
 fn prepare_blob_for_compilation(

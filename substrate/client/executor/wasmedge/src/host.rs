@@ -10,7 +10,8 @@ use sc_executor_common::{
 use sp_sandbox::env as sandbox_env;
 use sp_wasm_interface::{FunctionContext, MemoryId, Pointer, Sandbox, WordSize};
 use std::sync::Arc;
-use wasmedge_sys::FuncRef;
+use wasmedge_sdk::{types::Val, Executor, FuncRef, Memory, Table};
+use wasmedge_sys::types::WasmValue;
 
 // The sandbox store is inside of a Option<Box<..>>> so that we can temporarily borrow it.
 struct SandboxStore(Option<Box<sandbox::Store<Arc<FuncRef>>>>);
@@ -58,17 +59,13 @@ impl HostState {
 /// runtime. The `HostContext` exists only for the lifetime of the call and borrows state from
 /// a longer-living `HostState`.
 pub(crate) struct HostContext<'a> {
-	memory: wasmedge_sys::Memory,
-	table: Option<wasmedge_sys::Table>,
+	memory: Memory,
+	table: Option<Table>,
 	host_state: &'a mut HostState,
 }
 
 impl<'a> HostContext<'a> {
-	pub fn new(
-		memory: wasmedge_sys::Memory,
-		table: Option<wasmedge_sys::Table>,
-		host_state: &mut HostState,
-	) -> HostContext {
+	pub fn new(memory: Memory, table: Option<Table>, host_state: &mut HostState) -> HostContext {
 		HostContext { memory, table, host_state }
 	}
 
@@ -165,7 +162,7 @@ impl<'a> Sandbox for HostContext<'a> {
 		if util::write_memory_from(util::memory_slice_mut(&mut self.memory), buf_ptr, &buffer)
 			.is_err()
 		{
-			return Ok(sandbox_env::ERR_OUT_OF_BOUNDS)
+			return Ok(sandbox_env::ERR_OUT_OF_BOUNDS);
 		}
 
 		Ok(sandbox_env::ERR_OK)
@@ -188,7 +185,7 @@ impl<'a> Sandbox for HostContext<'a> {
 		};
 
 		if sandboxed_memory.write_from(Pointer::new(offset as u32), &buffer).is_err() {
-			return Ok(sandbox_env::ERR_OUT_OF_BOUNDS)
+			return Ok(sandbox_env::ERR_OUT_OF_BOUNDS);
 		}
 
 		Ok(sandbox_env::ERR_OK)
@@ -237,7 +234,7 @@ impl<'a> Sandbox for HostContext<'a> {
 				// Serialize return value and write it back into the memory.
 				sp_wasm_interface::ReturnValue::Value(val.into()).using_encoded(|val| {
 					if val.len() > return_val_len as usize {
-						return Err("Return value buffer is too small".into())
+						return Err("Return value buffer is too small".into());
 					}
 					<HostContext as FunctionContext>::write_memory(self, return_val, val)
 						.map_err(|_| "can't write return value")?;
@@ -262,15 +259,20 @@ impl<'a> Sandbox for HostContext<'a> {
 		state: u32,
 	) -> sp_wasm_interface::Result<u32> {
 		// Extract a dispatch thunk from the instance's table by the specified index.
-		let dispatch_thunk = Arc::new(
-			self.table
+		let dispatch_thunk = Arc::new({
+			match self
+				.table
 				.as_ref()
 				.ok_or("failed to get WASM table named '__indirect_function_table")?
-				.get_data(dispatch_thunk_id)
+				.get(dispatch_thunk_id)
 				.map_err(|_| "dispatch_thunk_id is out of bounds")?
-				.func_ref()
-				.ok_or("dispatch_thunk_id should point to actual func")?,
-		);
+			{
+				Val::FuncRef(Some(func_ref)) => func_ref,
+				_ => {
+					return Err(String::from("dispatch_thunk_id should point to actual func"));
+				},
+			}
+		});
 
 		let guest_env = match sandbox::GuestEnvironment::decode(self.sandbox_store(), raw_env_def) {
 			Ok(guest_env) => guest_env,
@@ -336,17 +338,17 @@ impl<'a, 'b> sandbox::SandboxContext for SandboxContext<'a, 'b> {
 		state: u32,
 		func_idx: SupervisorFuncIndex,
 	) -> Result<i64> {
-		let mut executor = wasmedge_sys::Executor::create(None, None).map_err(|e| {
+		let mut executor = Executor::new(None, None).map_err(|e| {
 			WasmError::Other(format!("fail to create a WasmEdge Executor context: {}", e))
 		})?;
 
 		let result = self.dispatch_thunk.call(
 			&mut executor,
 			vec![
-				wasmedge_sys::WasmValue::from_i32(u32::from(invoke_args_ptr) as i32),
-				wasmedge_sys::WasmValue::from_i32(invoke_args_len as i32),
-				wasmedge_sys::WasmValue::from_i32(state as i32),
-				wasmedge_sys::WasmValue::from_i32(usize::from(func_idx) as i32),
+				WasmValue::from_i32(u32::from(invoke_args_ptr) as i32),
+				WasmValue::from_i32(invoke_args_len as i32),
+				WasmValue::from_i32(state as i32),
+				WasmValue::from_i32(usize::from(func_idx) as i32),
 			],
 		);
 

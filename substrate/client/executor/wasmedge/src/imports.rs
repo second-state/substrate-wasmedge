@@ -4,17 +4,18 @@ use crate::{
 	util,
 };
 use sc_executor_common::error::WasmError;
-use sp_wasm_interface::{Function, ValueType};
+use sp_wasm_interface::Function;
 use std::{
 	collections::HashMap,
 	sync::{Arc, Mutex},
 };
-use wasmedge_sys::{AsImport, CallingFrame};
-use wasmedge_types::error::HostFuncError;
+use wasmedge_sdk::{CallingFrame, ImportObjectBuilder, Instance, Module};
+use wasmedge_sys::types::WasmValue;
+use wasmedge_types::{error::HostFuncError, ExternalInstanceType, FuncType};
 
 struct Wrapper {
 	host_state: *mut Option<HostState>,
-	instance: *mut Option<wasmedge_sys::Instance>,
+	instance: *mut Option<Instance>,
 }
 
 unsafe impl Send for Wrapper {}
@@ -23,7 +24,7 @@ unsafe impl Send for Wrapper {}
 /// Returns an error if there are imports that cannot be satisfied.
 pub(crate) fn prepare_imports(
 	instance_wrapper: &mut InstanceWrapper,
-	module: &wasmedge_sys::Module,
+	module: &Module,
 	host_functions: &Vec<&'static dyn Function>,
 	allow_missing_func_imports: bool,
 ) -> Result<(), WasmError> {
@@ -38,59 +39,53 @@ pub(crate) fn prepare_imports(
 				"host doesn't provide any imports from non-env module: {}:{}",
 				import_ty.module_name(),
 				name,
-			)))
+			)));
 		}
 
 		match import_ty.ty() {
-			Ok(wasmedge_types::ExternalInstanceType::Func(func_ty)) => {
+			Ok(ExternalInstanceType::Func(func_ty)) => {
 				pending_func_imports.insert(name.into_owned(), (import_ty, func_ty));
 			},
-			_ =>
+			_ => {
 				return Err(WasmError::Other(format!(
 					"host doesn't provide any non function imports: {}:{}",
 					import_ty.module_name(),
 					name,
-				))),
+				)))
+			},
 		};
 	}
 
-	let mut import = wasmedge_sys::ImportModule::create("env").map_err(|e| {
-		WasmError::Other(format!("fail to create a WasmEdge ImportModule context: {}", e))
-	})?;
+	let mut import = ImportObjectBuilder::new();
 
 	for (name, (import_ty, func_ty)) in pending_func_imports {
 		if let Some(host_func) = host_functions.iter().find(|host_func| host_func.name() == name) {
 			let host_func: &'static dyn Function = *host_func;
 
 			let signature = host_func.signature();
-			let params = signature.args.iter().cloned().map(into_wasmedge_val_type);
-			let results = signature.return_value.iter().cloned().map(into_wasmedge_val_type);
+			let params = signature.args.iter().cloned().map(util::into_wasmedge_val_type);
+			let results = signature.return_value.iter().cloned().map(util::into_wasmedge_val_type);
 
-			let host_func_ty = wasmedge_sys::FuncType::create(params.clone(), results.clone())
-				.map_err(|e| {
-					WasmError::Other(format!("fail to create a WasmEdge FuncType context: {}", e))
-				})?;
+			let returns_len = results.len();
 
 			// Check that the signature of the host function is the same as the wasm import
-			let func_ty_check =
-				wasmedge_types::FuncType::new(Some(params.collect()), Some(results.collect()));
+			let func_ty_check = FuncType::new(Some(params.collect()), Some(results.collect()));
 			if func_ty != func_ty_check {
 				return Err(WasmError::Other(format!(
 					"signature mismatch for: {}:{}",
 					import_ty.module_name(),
 					name,
-				)))
+				)));
 			}
 
 			let host_state = instance_wrapper.host_state_ptr();
 			let instance = instance_wrapper.instance_ptr();
 
 			let s = Arc::new(Mutex::new(Wrapper { host_state, instance }));
-			let returns_len = host_func_ty.returns_len();
-			let function_static = move |_: &CallingFrame, inputs: Vec<wasmedge_sys::WasmValue>| -> std::result::Result<
-				Vec<wasmedge_sys::WasmValue>,
-				HostFuncError,
-			> {
+
+			let function_static = move |_: &CallingFrame,
+			                            inputs: Vec<WasmValue>|
+			      -> std::result::Result<Vec<WasmValue>, HostFuncError> {
 				let mut wrapper = s.lock().unwrap();
 				let host_state = unsafe { &mut *(wrapper.host_state) };
 				let instance = unsafe { &*(wrapper.instance) };
@@ -98,16 +93,8 @@ pub(crate) fn prepare_imports(
 				let host_state = host_state.as_mut().unwrap();
 
 				let mut host_context = HostContext::new(
-					instance
-						.get_memory("memory")
-						.map_err(|e| {
-							WasmError::Other(format!(
-								"failed to get WASM memory named 'memory': {}",
-								e,
-							))
-						})
-						.unwrap(),
-					instance.get_table("__indirect_function_table").ok(),
+					instance.memory("memory").unwrap(),
+					instance.table("__indirect_function_table"),
 					host_state,
 				);
 
@@ -118,7 +105,7 @@ pub(crate) fn prepare_imports(
 					// This, however, cannot happen since the signature of this function is created
 					// from a `dyn Function` signature of which cannot have a non substrate value by
 					// definition.
-					let mut params = inputs.iter().cloned().map(util::from_wasmedge_val);
+					let mut params = inputs.iter().cloned().map(util::from_wasmedge_value);
 
 					std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
 						host_func.execute(&mut host_context, &mut params)
@@ -136,7 +123,7 @@ pub(crate) fn prepare_imports(
 							"wasmedge function signature, therefore the number of results, should always \
 							correspond to the number of results returned by the host function",
 						);
-						Ok(vec![util::into_wasmedge_val(ret_val)])
+						Ok(vec![util::into_wasmedge_value(ret_val)])
 					},
 					Ok(None) => {
 						debug_assert!(
@@ -150,14 +137,12 @@ pub(crate) fn prepare_imports(
 				}
 			};
 
-			let func = wasmedge_sys::Function::create(&host_func_ty, Box::new(function_static), 0)
-				.map_err(|e| {
-					WasmError::Other(format!(
-						"failed to register host function '{}' into WASM: {}",
-						name, e
-					))
-				})?;
-			import.add_func(&name, func);
+			import = import.with_func_by_type(&name, func_ty, function_static).map_err(|e| {
+				WasmError::Other(format!(
+					"failed to register host function '{}' into WASM: {}",
+					name, e
+				))
+			})?;
 		} else {
 			missing_func_imports.insert(name, (import_ty, func_ty));
 		}
@@ -166,24 +151,15 @@ pub(crate) fn prepare_imports(
 	if !missing_func_imports.is_empty() {
 		if allow_missing_func_imports {
 			for (name, (_, _)) in missing_func_imports {
-				let function_static = move |_: &CallingFrame, _: Vec<wasmedge_sys::WasmValue>| -> std::result::Result<
-					Vec<wasmedge_sys::WasmValue>,
+				let function_static = move |_: &CallingFrame,
+				                            _: Vec<WasmValue>|
+				      -> std::result::Result<
+					Vec<WasmValue>,
 					HostFuncError,
 				> { Err(HostFuncError::User(1)) };
-				let func = wasmedge_sys::Function::create(
-					&wasmedge_sys::FuncType::create([], []).map_err(|e| {
-						WasmError::Other(format!(
-							"fail to create a WasmEdge FuncType context: {}",
-							e
-						))
-					})?,
-					Box::new(function_static),
-					0,
-				)
-				.map_err(|e| {
+				import = import.with_func::<(), ()>(&name, function_static).map_err(|e| {
 					WasmError::Other(format!("fail to create a blank Function instance: {}", e))
 				})?;
-				import.add_func(&name, func);
 			}
 		} else {
 			let mut names = Vec::new();
@@ -194,24 +170,17 @@ pub(crate) fn prepare_imports(
 			return Err(WasmError::Other(format!(
 				"runtime requires function imports which are not present on the host: {}",
 				names
-			)))
+			)));
 		}
 	}
 
-	let import_obj = wasmedge_sys::ImportObject::Import(import);
+	let import_obj = import
+		.build("env")
+		.map_err(|e| WasmError::Other(format!("fail to create a WasmEdge import object: {}", e)))?;
 
 	instance_wrapper
 		.register_import(import_obj)
 		.map_err(|e| WasmError::Other(format!("failed to register import object: {}", e)))?;
 
 	Ok(())
-}
-
-fn into_wasmedge_val_type(val_ty: ValueType) -> wasmedge_types::ValType {
-	match val_ty {
-		ValueType::I32 => wasmedge_types::ValType::I32,
-		ValueType::I64 => wasmedge_types::ValType::I64,
-		ValueType::F32 => wasmedge_types::ValType::F32,
-		ValueType::F64 => wasmedge_types::ValType::F64,
-	}
 }

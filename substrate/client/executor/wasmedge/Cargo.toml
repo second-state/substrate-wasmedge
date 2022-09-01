@@ -25,6 +25,7 @@ sp-runtime-interface = { version = "6.0.0", path = "../../../primitives/runtime-
 sp-sandbox = { version = "0.10.0-dev", path = "../../../primitives/sandbox" }
 sp-wasm-interface = { version = "6.0.0", features = ["wasmtime"], path = "../../../primitives/wasm-interface" }
 
+wasmedge-sdk = { path = "../../../../WasmEdge/bindings/rust/wasmedge-sdk" }
 wasmedge-sys = { path = "../../../../WasmEdge/bindings/rust/wasmedge-sys" }
 wasmedge-types = { path = "../../../../WasmEdge/bindings/rust/wasmedge-types" }
 
