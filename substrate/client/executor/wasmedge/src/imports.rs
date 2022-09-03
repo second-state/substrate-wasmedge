@@ -93,7 +93,7 @@ pub(crate) fn prepare_imports(
 				let host_state = host_state.as_mut().unwrap();
 
 				let mut host_context = HostContext::new(
-					instance.memory("memory").unwrap(),
+					instance.memory("memory").expect("memory is always set; qed"),
 					instance.table("__indirect_function_table"),
 					host_state,
 				);

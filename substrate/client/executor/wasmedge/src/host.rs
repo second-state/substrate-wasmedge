@@ -263,7 +263,7 @@ impl<'a> Sandbox for HostContext<'a> {
 			match self
 				.table
 				.as_ref()
-				.ok_or("failed to get WASM table named '__indirect_function_table")?
+				.ok_or("Runtime doesn't have a table; sandbox is unavailable")?
 				.get(dispatch_thunk_id)
 				.map_err(|_| "dispatch_thunk_id is out of bounds")?
 			{
