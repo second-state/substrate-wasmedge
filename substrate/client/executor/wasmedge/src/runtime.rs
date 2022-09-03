@@ -10,8 +10,6 @@ use sc_executor_common::{
 use sp_runtime_interface::unpack_ptr_and_len;
 use sp_wasm_interface::{Function, HostFunctions, Pointer, Value, WordSize};
 use std::{
-	fs::File,
-	io::Write,
 	path::Path,
 	sync::{Arc, Mutex},
 };
@@ -376,28 +374,12 @@ pub fn prepare_runtime_artifact(
 	compiled_artifact_path: &Path,
 ) -> std::result::Result<(), WasmError> {
 	let blob = prepare_blob_for_compilation(blob, semantics)?;
-	let dir = tempfile::tempdir().map_err(|e| {
-		WasmError::Other(format!(
-			"cannot create a directory inside of `std::env::temp_dir()` {}",
-			e
-		))
-	})?;
-	let path_temp = dir.path().join("temp.wasm");
-
-	File::create(path_temp.clone())
-		.map_err(|e| {
-			WasmError::Other(format!("cannot create the file to store runtime artifact: {}", e))
-		})?
-		.write_all(&blob.serialize())
-		.map_err(|e| {
-			WasmError::Other(format!("cannot write the runtime blob bytes into the file: {}", e))
-		})?;
 
 	Compiler::new(Some(&common_config(semantics)?))
 		.map_err(|e| {
 			WasmError::Other(format!("fail to create a WasmEdge Compiler context: {}", e))
 		})?
-		.compile_from_file(path_temp, compiled_artifact_path)
+		.compile_from_bytes(&blob.serialize(), compiled_artifact_path)
 		.map_err(|e| WasmError::Other(format!("fail to compile the input WASM file: {}", e)))?;
 
 	Ok(())
