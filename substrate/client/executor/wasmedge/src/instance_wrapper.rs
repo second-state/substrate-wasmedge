@@ -197,15 +197,15 @@ impl InstanceWrapper {
 	}
 
 	pub(crate) fn memory(&self) -> &Memory {
-		self.memory.as_ref().unwrap()
+		self.memory.as_ref().expect("memory is always set; qed")
 	}
 
 	pub(crate) fn memory_mut(&mut self) -> &mut Memory {
-		self.memory.as_mut().unwrap()
+		self.memory.as_mut().expect("memory is always set; qed")
 	}
 
 	pub(crate) fn instance(&self) -> &Instance {
-		self.instance.as_ref().unwrap()
+		self.instance.as_ref().expect("wasmedge instance is always set; qed")
 	}
 
 	pub fn host_state_mut(&mut self) -> &mut HostState {

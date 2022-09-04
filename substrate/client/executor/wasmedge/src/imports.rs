@@ -7,6 +7,7 @@ use sc_executor_common::error::WasmError;
 use sp_wasm_interface::Function;
 use std::{
 	collections::HashMap,
+	fmt,
 	sync::{Arc, Mutex},
 };
 use wasmedge_sdk::{CallingFrame, ImportObjectBuilder, Instance, Module};
@@ -113,7 +114,18 @@ pub(crate) fn prepare_imports(
 				};
 				let execution_result = match unwind_result {
 					Ok(execution_result) => execution_result,
-					Err(_) => return Err(HostFuncError::User(1)),
+					Err(e) => {
+						let message = e
+							.downcast_ref::<String>()
+							.ok_or(HostFuncError::User(HostFuncErrorWasmEdge::Others as u32))?
+							.as_str();
+						if message.contains("Failed to allocate memory") {
+							return Err(HostFuncError::User(
+								HostFuncErrorWasmEdge::AllocateMemoryErr as u32,
+							));
+						}
+						return Err(HostFuncError::User(HostFuncErrorWasmEdge::Others as u32));
+					},
 				};
 
 				match execution_result {
@@ -133,7 +145,7 @@ pub(crate) fn prepare_imports(
 						);
 						Ok(vec![])
 					},
-					Err(_) => Err(HostFuncError::User(1)),
+					Err(_) => Err(HostFuncError::User(HostFuncErrorWasmEdge::Others as u32)),
 				}
 			};
 
@@ -151,12 +163,12 @@ pub(crate) fn prepare_imports(
 	if !missing_func_imports.is_empty() {
 		if allow_missing_func_imports {
 			for (name, (_, _)) in missing_func_imports {
-				let function_static = move |_: &CallingFrame,
-				                            _: Vec<WasmValue>|
-				      -> std::result::Result<
-					Vec<WasmValue>,
-					HostFuncError,
-				> { Err(HostFuncError::User(1)) };
+				let function_static =
+					move |_: &CallingFrame,
+					      _: Vec<WasmValue>|
+					      -> std::result::Result<Vec<WasmValue>, HostFuncError> {
+						Err(HostFuncError::User(HostFuncErrorWasmEdge::MissingHostFunc as u32))
+					};
 				import = import.with_func::<(), ()>(&name, function_static).map_err(|e| {
 					WasmError::Other(format!("fail to create a blank Function instance: {}", e))
 				})?;
@@ -183,4 +195,20 @@ pub(crate) fn prepare_imports(
 		.map_err(|e| WasmError::Other(format!("failed to register import object: {}", e)))?;
 
 	Ok(())
+}
+
+pub enum HostFuncErrorWasmEdge {
+	MissingHostFunc = 1,
+	AllocateMemoryErr = 2,
+	Others = 3,
+}
+
+impl fmt::Display for HostFuncErrorWasmEdge {
+	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+		match self {
+			HostFuncErrorWasmEdge::MissingHostFunc => write!(f, "1"),
+			HostFuncErrorWasmEdge::AllocateMemoryErr => write!(f, "2"),
+			HostFuncErrorWasmEdge::Others => write!(f, "3"),
+		}
+	}
 }
