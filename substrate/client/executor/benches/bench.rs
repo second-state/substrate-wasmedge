@@ -40,6 +40,11 @@ enum Method {
 		instantiation_strategy: InstantiationStrategy,
 		precompile: bool,
 	},
+	#[cfg(feature = "wasmedge")]
+	CompiledWasmedge {
+		fast_instance_reuse: bool,
+		precompile: bool,
+	},
 }
 
 // This is just a bog-standard Kusama runtime with an extra
@@ -101,6 +106,37 @@ fn initialize(
 				}
 			} else {
 				sc_executor_wasmtime::create_runtime::<sp_io::SubstrateHostFunctions>(blob, config)
+			}
+			.map(|runtime| -> Arc<dyn WasmModule> { Arc::new(runtime) })
+		},
+		#[cfg(feature = "wasmedge")]
+		Method::CompiledWasmedge { fast_instance_reuse, precompile } => {
+			let config = sc_executor_wasmedge::Config {
+				allow_missing_func_imports,
+				semantics: sc_executor_wasmedge::Semantics {
+					extra_heap_pages: heap_pages,
+					deterministic_stack_limit: None,
+					fast_instance_reuse,
+					max_memory_size: None,
+				},
+			};
+
+			if precompile {
+				// Create a fresh temporary directory to make absolutely sure
+				// we'll use the right module.
+				*_tmpdir = Some(tempfile::tempdir().unwrap());
+				let tmpdir = _tmpdir.as_ref().unwrap();
+
+				let path = tmpdir.path().join("module.bin");
+
+				sc_executor_wasmedge::prepare_runtime_artifact(blob, &config.semantics, &path).unwrap();
+				unsafe {
+					sc_executor_wasmedge::create_runtime_from_artifact::<
+						sp_io::SubstrateHostFunctions,
+					>(&path, config)
+				}
+			} else {
+				sc_executor_wasmedge::create_runtime::<sp_io::SubstrateHostFunctions>(blob, config)
 			}
 			.map(|runtime| -> Arc<dyn WasmModule> { Arc::new(runtime) })
 		},
@@ -219,6 +255,21 @@ fn bench_call_instance(c: &mut Criterion) {
 				precompile: true,
 			},
 		),
+		#[cfg(feature = "wasmedge")]
+		("wasmedge_reuse", Method::CompiledWasmedge {
+			fast_instance_reuse: true,
+			precompile: false,
+		}),
+		#[cfg(feature = "wasmedge")]
+		("wasmedge_recreate", Method::CompiledWasmedge {
+			fast_instance_reuse: false,
+			precompile: false,
+		}),
+		#[cfg(feature = "wasmedge")]
+		("wasmedge_recreate_precompiled", Method::CompiledWasmedge {
+			fast_instance_reuse: false,
+			precompile: true,
+		}),
 		("interpreted", Method::Interpreted),
 	];
 
@@ -250,7 +301,7 @@ fn bench_call_instance(c: &mut Criterion) {
 				for thread_count in thread_counts {
 					if thread_count > num_cpus {
 						// If there are not enough cores available the benchmark is pointless.
-						continue
+						continue;
 					}
 
 					let benchmark_name = format!(
