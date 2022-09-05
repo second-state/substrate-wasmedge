@@ -62,3 +62,7 @@ $ cd substrate-node-template
 $ cargo run --release --bin node-template -- --dev --wasm-execution=compiled
 ```
 
+## LICENSE
+
+- Substrate Client (`/substrate/client/*`) is licensed under [GPL v3.0 with a classpath linking exception](LICENSE-GPL3).
+- Everything else is licensed under [Apache v2.0](LICENSE)
