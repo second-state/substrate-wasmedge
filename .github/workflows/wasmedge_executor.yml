@@ -23,6 +23,7 @@ jobs:
       - name: Install Nightly Rust
         run: |
           rustup update nightly
+          rustup default nightly
           rustup target add wasm32-unknown-unknown --toolchain nightly
       
       - name: Build WasmEdge
