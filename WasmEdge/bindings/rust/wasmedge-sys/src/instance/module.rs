@@ -64,8 +64,8 @@ impl Instance {
             ffi::WasmEdge_ModuleInstanceFindFunction(self.inner.0 as *const _, func_name.as_raw())
         };
         match func_ctx.is_null() {
-            true => Err(WasmEdgeError::Instance(InstanceError::NotFoundFunc(
-                name.as_ref().to_string(),
+            true => Err(Box::new(WasmEdgeError::Instance(
+                InstanceError::NotFoundFunc(name.as_ref().to_string()),
             ))),
             false => Ok(Function {
                 inner: InnerFunc(func_ctx),
@@ -89,8 +89,8 @@ impl Instance {
             ffi::WasmEdge_ModuleInstanceFindTable(self.inner.0 as *const _, table_name.as_raw())
         };
         match ctx.is_null() {
-            true => Err(WasmEdgeError::Instance(InstanceError::NotFoundTable(
-                name.as_ref().to_string(),
+            true => Err(Box::new(WasmEdgeError::Instance(
+                InstanceError::NotFoundTable(name.as_ref().to_string()),
             ))),
             false => Ok(Table {
                 inner: InnerTable(ctx),
@@ -114,8 +114,8 @@ impl Instance {
             ffi::WasmEdge_ModuleInstanceFindMemory(self.inner.0 as *const _, mem_name.as_raw())
         };
         match ctx.is_null() {
-            true => Err(WasmEdgeError::Instance(InstanceError::NotFoundMem(
-                name.as_ref().to_string(),
+            true => Err(Box::new(WasmEdgeError::Instance(
+                InstanceError::NotFoundMem(name.as_ref().to_string()),
             ))),
             false => Ok(Memory {
                 inner: InnerMemory(ctx),
@@ -139,8 +139,8 @@ impl Instance {
             ffi::WasmEdge_ModuleInstanceFindGlobal(self.inner.0 as *const _, global_name.as_raw())
         };
         match ctx.is_null() {
-            true => Err(WasmEdgeError::Instance(InstanceError::NotFoundGlobal(
-                name.as_ref().to_string(),
+            true => Err(Box::new(WasmEdgeError::Instance(
+                InstanceError::NotFoundGlobal(name.as_ref().to_string()),
             ))),
             false => Ok(Global {
                 inner: InnerGlobal(ctx),
@@ -353,6 +353,8 @@ pub trait AsInstance {
 /// The following example shows how to use [ImportModule] to import [host function](crate::Function), [table](crate::Table), [memory](crate::Memory) and [global](crate::Global) instances, and to register it into [Vm](crate::Vm).
 ///
 /// ```rust
+/// #![feature(never_type)]
+///
 /// use wasmedge_sys::{
 ///     AsImport, FuncType, Function, Global, GlobalType, ImportModule, ImportObject, MemType,
 ///     Memory, Table, TableType, Vm, WasmValue, CallingFrame,
@@ -366,7 +368,7 @@ pub trait AsInstance {
 ///     let mut import = ImportModule::create(module_name)?;
 ///
 ///     // a function to import
-///     fn real_add(_: &CallingFrame, inputs: Vec<WasmValue>) -> Result<Vec<WasmValue>, HostFuncError> {
+///     fn real_add(_: &CallingFrame, inputs: Vec<WasmValue>, _data: *mut std::os::raw::c_void) -> Result<Vec<WasmValue>, HostFuncError> {
 ///         if inputs.len() != 2 {
 ///             return Err(HostFuncError::User(1));
 ///         }
@@ -390,7 +392,7 @@ pub trait AsInstance {
 ///
 ///     // add host function
 ///     let func_ty = FuncType::create(vec![ValType::I32; 2], vec![ValType::I32])?;
-///     let host_func = Function::create(&func_ty, Box::new(real_add), 0)?;
+///     let host_func = Function::create::<!>(&func_ty, Box::new(real_add), None, 0)?;
 ///     import.add_func("add", host_func);
 ///
 ///     // add table
@@ -447,7 +449,9 @@ impl ImportModule {
         let ctx = unsafe { ffi::WasmEdge_ModuleInstanceCreate(raw_name.as_raw()) };
 
         match ctx.is_null() {
-            true => Err(WasmEdgeError::Instance(InstanceError::CreateImportModule)),
+            true => Err(Box::new(WasmEdgeError::Instance(
+                InstanceError::CreateImportModule,
+            ))),
             false => Ok(Self {
                 inner: InnerInstance(ctx),
                 registered: false,
@@ -588,7 +592,7 @@ impl WasiModule {
             )
         };
         match ctx.is_null() {
-            true => Err(WasmEdgeError::ImportObjCreate),
+            true => Err(Box::new(WasmEdgeError::ImportObjCreate)),
             false => Ok(Self {
                 inner: InnerInstance(ctx),
                 registered: false,
@@ -688,9 +692,9 @@ impl WasiModule {
 
         match code {
             0 => Ok(handler),
-            _ => Err(WasmEdgeError::Instance(
+            _ => Err(Box::new(WasmEdgeError::Instance(
                 InstanceError::NotFoundMappedFdHandler,
-            )),
+            ))),
         }
     }
 }
@@ -701,8 +705,8 @@ impl AsInstance for WasiModule {
             ffi::WasmEdge_ModuleInstanceFindFunction(self.inner.0 as *const _, func_name.as_raw())
         };
         match func_ctx.is_null() {
-            true => Err(WasmEdgeError::Instance(InstanceError::NotFoundFunc(
-                name.as_ref().to_string(),
+            true => Err(Box::new(WasmEdgeError::Instance(
+                InstanceError::NotFoundFunc(name.as_ref().to_string()),
             ))),
             false => Ok(Function {
                 inner: InnerFunc(func_ctx),
@@ -717,8 +721,8 @@ impl AsInstance for WasiModule {
             ffi::WasmEdge_ModuleInstanceFindTable(self.inner.0 as *const _, table_name.as_raw())
         };
         match ctx.is_null() {
-            true => Err(WasmEdgeError::Instance(InstanceError::NotFoundTable(
-                name.as_ref().to_string(),
+            true => Err(Box::new(WasmEdgeError::Instance(
+                InstanceError::NotFoundTable(name.as_ref().to_string()),
             ))),
             false => Ok(Table {
                 inner: InnerTable(ctx),
@@ -733,8 +737,8 @@ impl AsInstance for WasiModule {
             ffi::WasmEdge_ModuleInstanceFindMemory(self.inner.0 as *const _, mem_name.as_raw())
         };
         match ctx.is_null() {
-            true => Err(WasmEdgeError::Instance(InstanceError::NotFoundMem(
-                name.as_ref().to_string(),
+            true => Err(Box::new(WasmEdgeError::Instance(
+                InstanceError::NotFoundMem(name.as_ref().to_string()),
             ))),
             false => Ok(Memory {
                 inner: InnerMemory(ctx),
@@ -749,8 +753,8 @@ impl AsInstance for WasiModule {
             ffi::WasmEdge_ModuleInstanceFindGlobal(self.inner.0 as *const _, global_name.as_raw())
         };
         match ctx.is_null() {
-            true => Err(WasmEdgeError::Instance(InstanceError::NotFoundGlobal(
-                name.as_ref().to_string(),
+            true => Err(Box::new(WasmEdgeError::Instance(
+                InstanceError::NotFoundGlobal(name.as_ref().to_string()),
             ))),
             false => Ok(Global {
                 inner: InnerGlobal(ctx),
@@ -996,7 +1000,7 @@ impl WasmEdgeProcessModule {
             )
         };
         match ctx.is_null() {
-            true => Err(WasmEdgeError::ImportObjCreate),
+            true => Err(Box::new(WasmEdgeError::ImportObjCreate)),
             false => Ok(Self {
                 inner: InnerInstance(ctx),
                 registered: false,
@@ -1041,8 +1045,8 @@ impl AsInstance for WasmEdgeProcessModule {
             ffi::WasmEdge_ModuleInstanceFindFunction(self.inner.0 as *const _, func_name.as_raw())
         };
         match func_ctx.is_null() {
-            true => Err(WasmEdgeError::Instance(InstanceError::NotFoundFunc(
-                name.as_ref().to_string(),
+            true => Err(Box::new(WasmEdgeError::Instance(
+                InstanceError::NotFoundFunc(name.as_ref().to_string()),
             ))),
             false => Ok(Function {
                 inner: InnerFunc(func_ctx),
@@ -1057,8 +1061,8 @@ impl AsInstance for WasmEdgeProcessModule {
             ffi::WasmEdge_ModuleInstanceFindTable(self.inner.0 as *const _, table_name.as_raw())
         };
         match ctx.is_null() {
-            true => Err(WasmEdgeError::Instance(InstanceError::NotFoundTable(
-                name.as_ref().to_string(),
+            true => Err(Box::new(WasmEdgeError::Instance(
+                InstanceError::NotFoundTable(name.as_ref().to_string()),
             ))),
             false => Ok(Table {
                 inner: InnerTable(ctx),
@@ -1073,8 +1077,8 @@ impl AsInstance for WasmEdgeProcessModule {
             ffi::WasmEdge_ModuleInstanceFindMemory(self.inner.0 as *const _, mem_name.as_raw())
         };
         match ctx.is_null() {
-            true => Err(WasmEdgeError::Instance(InstanceError::NotFoundMem(
-                name.as_ref().to_string(),
+            true => Err(Box::new(WasmEdgeError::Instance(
+                InstanceError::NotFoundMem(name.as_ref().to_string()),
             ))),
             false => Ok(Memory {
                 inner: InnerMemory(ctx),
@@ -1089,8 +1093,8 @@ impl AsInstance for WasmEdgeProcessModule {
             ffi::WasmEdge_ModuleInstanceFindGlobal(self.inner.0 as *const _, global_name.as_raw())
         };
         match ctx.is_null() {
-            true => Err(WasmEdgeError::Instance(InstanceError::NotFoundGlobal(
-                name.as_ref().to_string(),
+            true => Err(Box::new(WasmEdgeError::Instance(
+                InstanceError::NotFoundGlobal(name.as_ref().to_string()),
             ))),
             false => Ok(Global {
                 inner: InnerGlobal(ctx),
@@ -1286,7 +1290,7 @@ impl WasiNnModule {
     pub fn create() -> WasmEdgeResult<Self> {
         let ctx = unsafe { ffi::WasmEdge_ModuleInstanceCreateWasiNN() };
         match ctx.is_null() {
-            true => Err(WasmEdgeError::ImportObjCreate),
+            true => Err(Box::new(WasmEdgeError::ImportObjCreate)),
             false => Ok(Self {
                 inner: InnerInstance(ctx),
                 registered: false,
@@ -1301,8 +1305,8 @@ impl AsInstance for WasiNnModule {
             ffi::WasmEdge_ModuleInstanceFindFunction(self.inner.0 as *const _, func_name.as_raw())
         };
         match func_ctx.is_null() {
-            true => Err(WasmEdgeError::Instance(InstanceError::NotFoundFunc(
-                name.as_ref().to_string(),
+            true => Err(Box::new(WasmEdgeError::Instance(
+                InstanceError::NotFoundFunc(name.as_ref().to_string()),
             ))),
             false => Ok(Function {
                 inner: InnerFunc(func_ctx),
@@ -1317,8 +1321,8 @@ impl AsInstance for WasiNnModule {
             ffi::WasmEdge_ModuleInstanceFindTable(self.inner.0 as *const _, table_name.as_raw())
         };
         match ctx.is_null() {
-            true => Err(WasmEdgeError::Instance(InstanceError::NotFoundTable(
-                name.as_ref().to_string(),
+            true => Err(Box::new(WasmEdgeError::Instance(
+                InstanceError::NotFoundTable(name.as_ref().to_string()),
             ))),
             false => Ok(Table {
                 inner: InnerTable(ctx),
@@ -1333,8 +1337,8 @@ impl AsInstance for WasiNnModule {
             ffi::WasmEdge_ModuleInstanceFindMemory(self.inner.0 as *const _, mem_name.as_raw())
         };
         match ctx.is_null() {
-            true => Err(WasmEdgeError::Instance(InstanceError::NotFoundMem(
-                name.as_ref().to_string(),
+            true => Err(Box::new(WasmEdgeError::Instance(
+                InstanceError::NotFoundMem(name.as_ref().to_string()),
             ))),
             false => Ok(Memory {
                 inner: InnerMemory(ctx),
@@ -1349,8 +1353,8 @@ impl AsInstance for WasiNnModule {
             ffi::WasmEdge_ModuleInstanceFindGlobal(self.inner.0 as *const _, global_name.as_raw())
         };
         match ctx.is_null() {
-            true => Err(WasmEdgeError::Instance(InstanceError::NotFoundGlobal(
-                name.as_ref().to_string(),
+            true => Err(Box::new(WasmEdgeError::Instance(
+                InstanceError::NotFoundGlobal(name.as_ref().to_string()),
             ))),
             false => Ok(Global {
                 inner: InnerGlobal(ctx),
@@ -1545,7 +1549,7 @@ impl WasiCryptoCommonModule {
     pub fn create() -> WasmEdgeResult<Self> {
         let ctx = unsafe { ffi::WasmEdge_ModuleInstanceCreateWasiCryptoCommon() };
         match ctx.is_null() {
-            true => Err(WasmEdgeError::ImportObjCreate),
+            true => Err(Box::new(WasmEdgeError::ImportObjCreate)),
             false => Ok(Self {
                 inner: InnerInstance(ctx),
                 registered: false,
@@ -1560,8 +1564,8 @@ impl AsInstance for WasiCryptoCommonModule {
             ffi::WasmEdge_ModuleInstanceFindFunction(self.inner.0 as *const _, func_name.as_raw())
         };
         match func_ctx.is_null() {
-            true => Err(WasmEdgeError::Instance(InstanceError::NotFoundFunc(
-                name.as_ref().to_string(),
+            true => Err(Box::new(WasmEdgeError::Instance(
+                InstanceError::NotFoundFunc(name.as_ref().to_string()),
             ))),
             false => Ok(Function {
                 inner: InnerFunc(func_ctx),
@@ -1576,8 +1580,8 @@ impl AsInstance for WasiCryptoCommonModule {
             ffi::WasmEdge_ModuleInstanceFindTable(self.inner.0 as *const _, table_name.as_raw())
         };
         match ctx.is_null() {
-            true => Err(WasmEdgeError::Instance(InstanceError::NotFoundTable(
-                name.as_ref().to_string(),
+            true => Err(Box::new(WasmEdgeError::Instance(
+                InstanceError::NotFoundTable(name.as_ref().to_string()),
             ))),
             false => Ok(Table {
                 inner: InnerTable(ctx),
@@ -1592,8 +1596,8 @@ impl AsInstance for WasiCryptoCommonModule {
             ffi::WasmEdge_ModuleInstanceFindMemory(self.inner.0 as *const _, mem_name.as_raw())
         };
         match ctx.is_null() {
-            true => Err(WasmEdgeError::Instance(InstanceError::NotFoundMem(
-                name.as_ref().to_string(),
+            true => Err(Box::new(WasmEdgeError::Instance(
+                InstanceError::NotFoundMem(name.as_ref().to_string()),
             ))),
             false => Ok(Memory {
                 inner: InnerMemory(ctx),
@@ -1608,8 +1612,8 @@ impl AsInstance for WasiCryptoCommonModule {
             ffi::WasmEdge_ModuleInstanceFindGlobal(self.inner.0 as *const _, global_name.as_raw())
         };
         match ctx.is_null() {
-            true => Err(WasmEdgeError::Instance(InstanceError::NotFoundGlobal(
-                name.as_ref().to_string(),
+            true => Err(Box::new(WasmEdgeError::Instance(
+                InstanceError::NotFoundGlobal(name.as_ref().to_string()),
             ))),
             false => Ok(Global {
                 inner: InnerGlobal(ctx),
@@ -1804,7 +1808,7 @@ impl WasiCryptoAsymmetricCommonModule {
     pub fn create() -> WasmEdgeResult<Self> {
         let ctx = unsafe { ffi::WasmEdge_ModuleInstanceCreateWasiCryptoAsymmetricCommon() };
         match ctx.is_null() {
-            true => Err(WasmEdgeError::ImportObjCreate),
+            true => Err(Box::new(WasmEdgeError::ImportObjCreate)),
             false => Ok(Self {
                 inner: InnerInstance(ctx),
                 registered: false,
@@ -1819,8 +1823,8 @@ impl AsInstance for WasiCryptoAsymmetricCommonModule {
             ffi::WasmEdge_ModuleInstanceFindFunction(self.inner.0 as *const _, func_name.as_raw())
         };
         match func_ctx.is_null() {
-            true => Err(WasmEdgeError::Instance(InstanceError::NotFoundFunc(
-                name.as_ref().to_string(),
+            true => Err(Box::new(WasmEdgeError::Instance(
+                InstanceError::NotFoundFunc(name.as_ref().to_string()),
             ))),
             false => Ok(Function {
                 inner: InnerFunc(func_ctx),
@@ -1835,8 +1839,8 @@ impl AsInstance for WasiCryptoAsymmetricCommonModule {
             ffi::WasmEdge_ModuleInstanceFindTable(self.inner.0 as *const _, table_name.as_raw())
         };
         match ctx.is_null() {
-            true => Err(WasmEdgeError::Instance(InstanceError::NotFoundTable(
-                name.as_ref().to_string(),
+            true => Err(Box::new(WasmEdgeError::Instance(
+                InstanceError::NotFoundTable(name.as_ref().to_string()),
             ))),
             false => Ok(Table {
                 inner: InnerTable(ctx),
@@ -1851,8 +1855,8 @@ impl AsInstance for WasiCryptoAsymmetricCommonModule {
             ffi::WasmEdge_ModuleInstanceFindMemory(self.inner.0 as *const _, mem_name.as_raw())
         };
         match ctx.is_null() {
-            true => Err(WasmEdgeError::Instance(InstanceError::NotFoundMem(
-                name.as_ref().to_string(),
+            true => Err(Box::new(WasmEdgeError::Instance(
+                InstanceError::NotFoundMem(name.as_ref().to_string()),
             ))),
             false => Ok(Memory {
                 inner: InnerMemory(ctx),
@@ -1867,8 +1871,8 @@ impl AsInstance for WasiCryptoAsymmetricCommonModule {
             ffi::WasmEdge_ModuleInstanceFindGlobal(self.inner.0 as *const _, global_name.as_raw())
         };
         match ctx.is_null() {
-            true => Err(WasmEdgeError::Instance(InstanceError::NotFoundGlobal(
-                name.as_ref().to_string(),
+            true => Err(Box::new(WasmEdgeError::Instance(
+                InstanceError::NotFoundGlobal(name.as_ref().to_string()),
             ))),
             false => Ok(Global {
                 inner: InnerGlobal(ctx),
@@ -2063,7 +2067,7 @@ impl WasiCryptoSymmetricModule {
     pub fn create() -> WasmEdgeResult<Self> {
         let ctx = unsafe { ffi::WasmEdge_ModuleInstanceCreateWasiCryptoSymmetric() };
         match ctx.is_null() {
-            true => Err(WasmEdgeError::ImportObjCreate),
+            true => Err(Box::new(WasmEdgeError::ImportObjCreate)),
             false => Ok(Self {
                 inner: InnerInstance(ctx),
                 registered: false,
@@ -2078,8 +2082,8 @@ impl AsInstance for WasiCryptoSymmetricModule {
             ffi::WasmEdge_ModuleInstanceFindFunction(self.inner.0 as *const _, func_name.as_raw())
         };
         match func_ctx.is_null() {
-            true => Err(WasmEdgeError::Instance(InstanceError::NotFoundFunc(
-                name.as_ref().to_string(),
+            true => Err(Box::new(WasmEdgeError::Instance(
+                InstanceError::NotFoundFunc(name.as_ref().to_string()),
             ))),
             false => Ok(Function {
                 inner: InnerFunc(func_ctx),
@@ -2094,8 +2098,8 @@ impl AsInstance for WasiCryptoSymmetricModule {
             ffi::WasmEdge_ModuleInstanceFindTable(self.inner.0 as *const _, table_name.as_raw())
         };
         match ctx.is_null() {
-            true => Err(WasmEdgeError::Instance(InstanceError::NotFoundTable(
-                name.as_ref().to_string(),
+            true => Err(Box::new(WasmEdgeError::Instance(
+                InstanceError::NotFoundTable(name.as_ref().to_string()),
             ))),
             false => Ok(Table {
                 inner: InnerTable(ctx),
@@ -2110,8 +2114,8 @@ impl AsInstance for WasiCryptoSymmetricModule {
             ffi::WasmEdge_ModuleInstanceFindMemory(self.inner.0 as *const _, mem_name.as_raw())
         };
         match ctx.is_null() {
-            true => Err(WasmEdgeError::Instance(InstanceError::NotFoundMem(
-                name.as_ref().to_string(),
+            true => Err(Box::new(WasmEdgeError::Instance(
+                InstanceError::NotFoundMem(name.as_ref().to_string()),
             ))),
             false => Ok(Memory {
                 inner: InnerMemory(ctx),
@@ -2126,8 +2130,8 @@ impl AsInstance for WasiCryptoSymmetricModule {
             ffi::WasmEdge_ModuleInstanceFindGlobal(self.inner.0 as *const _, global_name.as_raw())
         };
         match ctx.is_null() {
-            true => Err(WasmEdgeError::Instance(InstanceError::NotFoundGlobal(
-                name.as_ref().to_string(),
+            true => Err(Box::new(WasmEdgeError::Instance(
+                InstanceError::NotFoundGlobal(name.as_ref().to_string()),
             ))),
             false => Ok(Global {
                 inner: InnerGlobal(ctx),
@@ -2322,7 +2326,7 @@ impl WasiCryptoKxModule {
     pub fn create() -> WasmEdgeResult<Self> {
         let ctx = unsafe { ffi::WasmEdge_ModuleInstanceCreateWasiCryptoKx() };
         match ctx.is_null() {
-            true => Err(WasmEdgeError::ImportObjCreate),
+            true => Err(Box::new(WasmEdgeError::ImportObjCreate)),
             false => Ok(Self {
                 inner: InnerInstance(ctx),
                 registered: false,
@@ -2337,8 +2341,8 @@ impl AsInstance for WasiCryptoKxModule {
             ffi::WasmEdge_ModuleInstanceFindFunction(self.inner.0 as *const _, func_name.as_raw())
         };
         match func_ctx.is_null() {
-            true => Err(WasmEdgeError::Instance(InstanceError::NotFoundFunc(
-                name.as_ref().to_string(),
+            true => Err(Box::new(WasmEdgeError::Instance(
+                InstanceError::NotFoundFunc(name.as_ref().to_string()),
             ))),
             false => Ok(Function {
                 inner: InnerFunc(func_ctx),
@@ -2353,8 +2357,8 @@ impl AsInstance for WasiCryptoKxModule {
             ffi::WasmEdge_ModuleInstanceFindTable(self.inner.0 as *const _, table_name.as_raw())
         };
         match ctx.is_null() {
-            true => Err(WasmEdgeError::Instance(InstanceError::NotFoundTable(
-                name.as_ref().to_string(),
+            true => Err(Box::new(WasmEdgeError::Instance(
+                InstanceError::NotFoundTable(name.as_ref().to_string()),
             ))),
             false => Ok(Table {
                 inner: InnerTable(ctx),
@@ -2369,8 +2373,8 @@ impl AsInstance for WasiCryptoKxModule {
             ffi::WasmEdge_ModuleInstanceFindMemory(self.inner.0 as *const _, mem_name.as_raw())
         };
         match ctx.is_null() {
-            true => Err(WasmEdgeError::Instance(InstanceError::NotFoundMem(
-                name.as_ref().to_string(),
+            true => Err(Box::new(WasmEdgeError::Instance(
+                InstanceError::NotFoundMem(name.as_ref().to_string()),
             ))),
             false => Ok(Memory {
                 inner: InnerMemory(ctx),
@@ -2385,8 +2389,8 @@ impl AsInstance for WasiCryptoKxModule {
             ffi::WasmEdge_ModuleInstanceFindGlobal(self.inner.0 as *const _, global_name.as_raw())
         };
         match ctx.is_null() {
-            true => Err(WasmEdgeError::Instance(InstanceError::NotFoundGlobal(
-                name.as_ref().to_string(),
+            true => Err(Box::new(WasmEdgeError::Instance(
+                InstanceError::NotFoundGlobal(name.as_ref().to_string()),
             ))),
             false => Ok(Global {
                 inner: InnerGlobal(ctx),
@@ -2581,7 +2585,7 @@ impl WasiCryptoSignaturesModule {
     pub fn create() -> WasmEdgeResult<Self> {
         let ctx = unsafe { ffi::WasmEdge_ModuleInstanceCreateWasiCryptoSignatures() };
         match ctx.is_null() {
-            true => Err(WasmEdgeError::ImportObjCreate),
+            true => Err(Box::new(WasmEdgeError::ImportObjCreate)),
             false => Ok(Self {
                 inner: InnerInstance(ctx),
                 registered: false,
@@ -2596,8 +2600,8 @@ impl AsInstance for WasiCryptoSignaturesModule {
             ffi::WasmEdge_ModuleInstanceFindFunction(self.inner.0 as *const _, func_name.as_raw())
         };
         match func_ctx.is_null() {
-            true => Err(WasmEdgeError::Instance(InstanceError::NotFoundFunc(
-                name.as_ref().to_string(),
+            true => Err(Box::new(WasmEdgeError::Instance(
+                InstanceError::NotFoundFunc(name.as_ref().to_string()),
             ))),
             false => Ok(Function {
                 inner: InnerFunc(func_ctx),
@@ -2612,8 +2616,8 @@ impl AsInstance for WasiCryptoSignaturesModule {
             ffi::WasmEdge_ModuleInstanceFindTable(self.inner.0 as *const _, table_name.as_raw())
         };
         match ctx.is_null() {
-            true => Err(WasmEdgeError::Instance(InstanceError::NotFoundTable(
-                name.as_ref().to_string(),
+            true => Err(Box::new(WasmEdgeError::Instance(
+                InstanceError::NotFoundTable(name.as_ref().to_string()),
             ))),
             false => Ok(Table {
                 inner: InnerTable(ctx),
@@ -2628,8 +2632,8 @@ impl AsInstance for WasiCryptoSignaturesModule {
             ffi::WasmEdge_ModuleInstanceFindMemory(self.inner.0 as *const _, mem_name.as_raw())
         };
         match ctx.is_null() {
-            true => Err(WasmEdgeError::Instance(InstanceError::NotFoundMem(
-                name.as_ref().to_string(),
+            true => Err(Box::new(WasmEdgeError::Instance(
+                InstanceError::NotFoundMem(name.as_ref().to_string()),
             ))),
             false => Ok(Memory {
                 inner: InnerMemory(ctx),
@@ -2644,8 +2648,8 @@ impl AsInstance for WasiCryptoSignaturesModule {
             ffi::WasmEdge_ModuleInstanceFindGlobal(self.inner.0 as *const _, global_name.as_raw())
         };
         match ctx.is_null() {
-            true => Err(WasmEdgeError::Instance(InstanceError::NotFoundGlobal(
-                name.as_ref().to_string(),
+            true => Err(Box::new(WasmEdgeError::Instance(
+                InstanceError::NotFoundGlobal(name.as_ref().to_string()),
             ))),
             false => Ok(Global {
                 inner: InnerGlobal(ctx),
@@ -2935,7 +2939,7 @@ mod tests {
         let result = FuncType::create([ValType::ExternRef, ValType::I32], [ValType::I32]);
         assert!(result.is_ok());
         let func_ty = result.unwrap();
-        let result = Function::create(&func_ty, Box::new(real_add), 0);
+        let result = Function::create::<!>(&func_ty, Box::new(real_add), None, 0);
         assert!(result.is_ok());
         let host_func = result.unwrap();
         // add the host function
@@ -3004,7 +3008,7 @@ mod tests {
         let result = FuncType::create(vec![ValType::I32; 2], vec![ValType::I32]);
         assert!(result.is_ok());
         let func_ty = result.unwrap();
-        let result = Function::create(&func_ty, Box::new(real_add), 0);
+        let result = Function::create::<!>(&func_ty, Box::new(real_add), None, 0);
         assert!(result.is_ok());
         let host_func = result.unwrap();
         import.add_func("add", host_func);
@@ -3340,7 +3344,7 @@ mod tests {
         let result = FuncType::create(vec![ValType::I32; 2], vec![ValType::I32]);
         assert!(result.is_ok());
         let func_ty = result.unwrap();
-        let result = Function::create(&func_ty, Box::new(real_add), 0);
+        let result = Function::create::<!>(&func_ty, Box::new(real_add), None, 0);
         assert!(result.is_ok());
         let host_func = result.unwrap();
         import.add_func("add", host_func);
@@ -3413,7 +3417,7 @@ mod tests {
         let result = FuncType::create(vec![ValType::I32; 2], vec![ValType::I32]);
         assert!(result.is_ok());
         let func_ty = result.unwrap();
-        let result = Function::create(&func_ty, Box::new(real_add), 0);
+        let result = Function::create::<!>(&func_ty, Box::new(real_add), None, 0);
         assert!(result.is_ok());
         let host_func = result.unwrap();
         import.add_func("add", host_func);
@@ -3455,7 +3459,11 @@ mod tests {
         vm
     }
 
-    fn real_add(_: &CallingFrame, inputs: Vec<WasmValue>) -> Result<Vec<WasmValue>, HostFuncError> {
+    fn real_add(
+        _: &CallingFrame,
+        inputs: Vec<WasmValue>,
+        _data: *mut std::os::raw::c_void,
+    ) -> Result<Vec<WasmValue>, HostFuncError> {
         if inputs.len() != 2 {
             return Err(HostFuncError::User(1));
         }

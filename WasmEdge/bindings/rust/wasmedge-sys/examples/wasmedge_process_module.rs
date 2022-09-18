@@ -1,3 +1,5 @@
+#![feature(never_type)]
+
 use wasmedge_sys::utils;
 #[cfg(target_os = "linux")]
 use wasmedge_sys::{
@@ -52,9 +54,9 @@ fn create_wasmedge_process_module_implicitly() -> Result<(), Box<dyn std::error:
     assert!(result.is_err());
     assert_eq!(
         result.unwrap_err(),
-        WasmEdgeError::Core(CoreError::Instantiation(
+        Box::new(WasmEdgeError::Core(CoreError::Instantiation(
             CoreInstantiationError::ModuleNameConflict
-        ))
+        )))
     );
 
     Ok(())
@@ -75,7 +77,7 @@ fn create_wasmedge_process_module_explicitly() -> Result<(), Box<dyn std::error:
     assert!(result.is_err());
     assert_eq!(
         result.unwrap_err(),
-        WasmEdgeError::Vm(VmError::NotFoundWasmEdgeProcessModule)
+        Box::new(WasmEdgeError::Vm(VmError::NotFoundWasmEdgeProcessModule))
     );
 
     // *** try to add a WasmEdgeProcess module.
@@ -84,7 +86,11 @@ fn create_wasmedge_process_module_explicitly() -> Result<(), Box<dyn std::error:
     let mut import_process = WasmEdgeProcessModule::create(None, false)?;
 
     // a function to import
-    fn real_add(_: &CallingFrame, inputs: Vec<WasmValue>) -> Result<Vec<WasmValue>, HostFuncError> {
+    fn real_add(
+        _: &CallingFrame,
+        inputs: Vec<WasmValue>,
+        _data: *mut std::os::raw::c_void,
+    ) -> Result<Vec<WasmValue>, HostFuncError> {
         if inputs.len() != 2 {
             return Err(HostFuncError::User(1));
         }
@@ -108,7 +114,7 @@ fn create_wasmedge_process_module_explicitly() -> Result<(), Box<dyn std::error:
 
     // add host function
     let func_ty = FuncType::create(vec![ValType::I32; 2], vec![ValType::I32])?;
-    let host_func = Function::create(&func_ty, Box::new(real_add), 0)?;
+    let host_func = Function::create::<!>(&func_ty, Box::new(real_add), None, 0)?;
     import_process.add_func("add", host_func);
 
     // register the WasmEdgeProcess module
@@ -119,7 +125,7 @@ fn create_wasmedge_process_module_explicitly() -> Result<(), Box<dyn std::error:
     assert!(result.is_err());
     assert_eq!(
         result.unwrap_err(),
-        WasmEdgeError::Vm(VmError::NotFoundWasmEdgeProcessModule)
+        Box::new(WasmEdgeError::Vm(VmError::NotFoundWasmEdgeProcessModule))
     );
 
     // get store from vm
