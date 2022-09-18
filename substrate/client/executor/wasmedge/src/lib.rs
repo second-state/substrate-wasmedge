@@ -1,3 +1,5 @@
+#![feature(never_type)]
+
 mod host;
 mod imports;
 mod instance_wrapper;

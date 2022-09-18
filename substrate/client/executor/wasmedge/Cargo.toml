@@ -24,6 +24,7 @@ sc-executor-common = { version = "0.10.0-dev", path = "../common" }
 sp-runtime-interface = { version = "6.0.0", path = "../../../primitives/runtime-interface" }
 sp-sandbox = { version = "0.10.0-dev", path = "../../../primitives/sandbox" }
 sp-wasm-interface = { version = "6.0.0", features = ["wasmtime"], path = "../../../primitives/wasm-interface" }
+lazy_static = "1.4.0"
 
 wasmedge-sdk = { path = "../../../../WasmEdge/bindings/rust/wasmedge-sdk" }
 wasmedge-sys = { path = "../../../../WasmEdge/bindings/rust/wasmedge-sys" }

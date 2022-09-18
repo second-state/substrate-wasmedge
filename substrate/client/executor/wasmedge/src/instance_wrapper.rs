@@ -92,9 +92,7 @@ impl InstanceWrapper {
 				let func_ref =
 					match table.get(func).map_err(|_| Error::NoTableEntryWithIndex(func))? {
 						Val::FuncRef(Some(func_ref)) => func_ref,
-						_ => {
-							return Err(Error::FunctionRefIsNull(func));
-						},
+						_ => return Err(Error::FunctionRefIsNull(func)),
 					};
 
 				check_signature2(&func_ref)?;
@@ -110,9 +108,7 @@ impl InstanceWrapper {
 					.map_err(|_| Error::NoTableEntryWithIndex(dispatcher_ref))?
 				{
 					Val::FuncRef(Some(func_ref)) => func_ref,
-					_ => {
-						return Err(Error::FunctionRefIsNull(dispatcher_ref));
-					},
+					_ => return Err(Error::FunctionRefIsNull(dispatcher_ref)),
 				};
 
 				check_signature3(&func_ref)?;
@@ -218,10 +214,6 @@ impl InstanceWrapper {
 		&mut self.host_state as *mut Option<HostState>
 	}
 
-	pub fn instance_ptr(&mut self) -> *mut Option<Instance> {
-		&mut self.instance as *mut Option<Instance>
-	}
-
 	pub fn set_host_state(&mut self, host_state: Option<HostState>) {
 		self.host_state = host_state;
 	}
@@ -235,7 +227,7 @@ impl InstanceWrapper {
 	/// as a side-effect.
 	pub fn decommit(&mut self) {
 		if self.memory().size() == 0 {
-			return;
+			return
 		}
 
 		cfg_if::cfg_if! {
@@ -304,7 +296,7 @@ fn check_signature1(func: &Func) -> Result<()> {
 	let returns = func_type.returns().unwrap_or(&[]);
 
 	if params != [ValType::I32, ValType::I32] || returns != [ValType::I64] {
-		return Err(Error::Other("Invalid signature for direct entry point".to_string()));
+		return Err(Error::Other("Invalid signature for direct entry point".to_string()))
 	}
 	Ok(())
 }
@@ -318,7 +310,7 @@ fn check_signature2(func_ref: &FuncRef) -> Result<()> {
 	let returns = func_type.returns().unwrap_or(&[]);
 
 	if params != vec![ValType::I32, ValType::I32] || returns != [ValType::I64] {
-		return Err(Error::Other("Invalid signature for direct entry point".to_string()));
+		return Err(Error::Other("Invalid signature for direct entry point".to_string()))
 	}
 	Ok(())
 }
@@ -332,7 +324,7 @@ fn check_signature3(func_ref: &FuncRef) -> Result<()> {
 	let returns = func_type.returns().unwrap_or(&[]);
 
 	if params != vec![ValType::I32, ValType::I32, ValType::I32] || returns != [ValType::I64] {
-		return Err(Error::Other("Invalid signature for direct entry point".to_string()));
+		return Err(Error::Other("Invalid signature for direct entry point".to_string()))
 	}
 	Ok(())
 }

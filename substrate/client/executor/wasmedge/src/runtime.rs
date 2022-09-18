@@ -286,9 +286,8 @@ impl WasmInstance for WasmEdgeInstance {
 
 	fn get_global_const(&mut self, name: &str) -> Result<Option<Value>> {
 		match &mut self.strategy {
-			Strategy::FastInstanceReuse { instance_wrapper, .. } => {
-				instance_wrapper.get_global_val(name)
-			},
+			Strategy::FastInstanceReuse { instance_wrapper, .. } =>
+				instance_wrapper.get_global_val(name),
 			Strategy::RecreateInstance(ref mut instance_creator) => {
 				instance_creator.instantiate()?;
 				instance_creator.instance_wrapper.get_global_val(name)
@@ -303,9 +302,8 @@ impl WasmInstance for WasmEdgeInstance {
 				// associated with it.
 				None
 			},
-			Strategy::FastInstanceReuse { instance_wrapper, .. } => {
-				Some(instance_wrapper.base_ptr())
-			},
+			Strategy::FastInstanceReuse { instance_wrapper, .. } =>
+				Some(instance_wrapper.base_ptr()),
 		}
 	}
 }

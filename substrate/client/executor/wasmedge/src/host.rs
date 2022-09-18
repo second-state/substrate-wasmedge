@@ -162,7 +162,7 @@ impl<'a> Sandbox for HostContext<'a> {
 		if util::write_memory_from(util::memory_slice_mut(&mut self.memory), buf_ptr, &buffer)
 			.is_err()
 		{
-			return Ok(sandbox_env::ERR_OUT_OF_BOUNDS);
+			return Ok(sandbox_env::ERR_OUT_OF_BOUNDS)
 		}
 
 		Ok(sandbox_env::ERR_OK)
@@ -185,7 +185,7 @@ impl<'a> Sandbox for HostContext<'a> {
 		};
 
 		if sandboxed_memory.write_from(Pointer::new(offset as u32), &buffer).is_err() {
-			return Ok(sandbox_env::ERR_OUT_OF_BOUNDS);
+			return Ok(sandbox_env::ERR_OUT_OF_BOUNDS)
 		}
 
 		Ok(sandbox_env::ERR_OK)
@@ -234,7 +234,7 @@ impl<'a> Sandbox for HostContext<'a> {
 				// Serialize return value and write it back into the memory.
 				sp_wasm_interface::ReturnValue::Value(val.into()).using_encoded(|val| {
 					if val.len() > return_val_len as usize {
-						return Err("Return value buffer is too small".into());
+						return Err("Return value buffer is too small".into())
 					}
 					<HostContext as FunctionContext>::write_memory(self, return_val, val)
 						.map_err(|_| "can't write return value")?;
@@ -268,9 +268,7 @@ impl<'a> Sandbox for HostContext<'a> {
 				.map_err(|_| "dispatch_thunk_id is out of bounds")?
 			{
 				Val::FuncRef(Some(func_ref)) => func_ref,
-				_ => {
-					return Err(String::from("dispatch_thunk_id should point to actual func"));
-				},
+				_ => return Err(String::from("dispatch_thunk_id should point to actual func")),
 			}
 		});
 

@@ -2,8 +2,7 @@ use sc_executor_common::{
 	error::{Error, Result},
 	util::checked_range,
 };
-use sp_wasm_interface::ValueType;
-use sp_wasm_interface::{Pointer, Value};
+use sp_wasm_interface::{Pointer, Value, ValueType};
 use wasmedge_sdk::{types::Val, Memory};
 use wasmedge_sys::WasmValue;
 use wasmedge_types::ValType;
