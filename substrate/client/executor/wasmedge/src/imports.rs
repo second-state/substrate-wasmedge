@@ -157,34 +157,21 @@ pub(crate) fn prepare_imports(
 
 			let host_state = instance_wrapper.host_state_ptr();
 
-			let host_wrapper = Box::new(HostWrapper { host_state, returns_len, host_func });
-			HOST_FUNC_DATA
-				.lock()
-				.map_err(|_| WasmError::Other("failed to lock the HOST_FUNC_DATA".to_string()))?
-				.push(host_wrapper);
+			let mut host_wrapper = Box::new(HostWrapper { host_state, returns_len, host_func });
 
 			import = import
-				.with_func_by_type(
-					&name,
-					func_ty,
-					function_static,
-					Some(
-						HOST_FUNC_DATA
-							.lock()
-							.map_err(|_| {
-								WasmError::Other("failed to lock the HOST_FUNC_DATA".to_string())
-							})?
-							.last_mut()
-							.unwrap()
-							.as_mut(),
-					),
-				)
+				.with_func_by_type(&name, func_ty, function_static, Some(host_wrapper.as_mut()))
 				.map_err(|e| {
 					WasmError::Other(format!(
 						"failed to register host function '{}' into WASM: {}",
 						name, e
 					))
 				})?;
+
+			HOST_FUNC_DATA
+				.lock()
+				.map_err(|_| WasmError::Other("failed to lock the HOST_FUNC_DATA".to_string()))?
+				.push(host_wrapper);
 		} else {
 			missing_func_imports.insert(name, (import_ty, func_ty));
 		}
