@@ -239,7 +239,7 @@ lazy_static! {
                 .map(|s| s
                     .parse::<usize>()
                     .expect("MAX_HOST_FUNC_LENGTH should be a positive integer."))
-                .unwrap_or(500)
+                .unwrap_or(2000)
         )));
 }
 
@@ -254,7 +254,7 @@ thread_local! {
                 .map(|s| s
                     .parse::<usize>()
                     .expect("MAX_HOST_FUNC_SINGLE_LENGTH should be a number"))
-                .unwrap_or(500)
+                .unwrap_or(2000)
         ));
 }
 
