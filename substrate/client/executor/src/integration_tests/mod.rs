@@ -796,32 +796,38 @@ fn wasm_tracing_should_work(wasm_method: WasmExecutionMethod) {
 	assert_eq!(len, 2);
 }
 
-// test_wasm_execution!(spawning_runtime_instance_should_work);
-// fn spawning_runtime_instance_should_work(wasm_method: WasmExecutionMethod) {
-// 	let mut ext = TestExternalities::default();
-// 	let mut ext = ext.ext();
+test_wasm_execution!(spawning_runtime_instance_should_work);
+fn spawning_runtime_instance_should_work(wasm_method: WasmExecutionMethod) {
+	let mut ext = TestExternalities::default();
+	let mut ext = ext.ext();
 
-// 	call_in_wasm("test_spawn", &[], wasm_method, &mut ext).unwrap();
-// }
+	call_in_wasm("test_spawn", &[], wasm_method, &mut ext).unwrap();
+}
 
-// test_wasm_execution!(spawning_runtime_instance_nested_should_work);
-// fn spawning_runtime_instance_nested_should_work(wasm_method: WasmExecutionMethod) {
-// 	let mut ext = TestExternalities::default();
-// 	let mut ext = ext.ext();
+test_wasm_execution!(spawning_runtime_instance_nested_should_work);
+fn spawning_runtime_instance_nested_should_work(wasm_method: WasmExecutionMethod) {
+	let mut ext = TestExternalities::default();
+	let mut ext = ext.ext();
 
-// 	call_in_wasm("test_nested_spawn", &[], wasm_method, &mut ext).unwrap();
-// }
+	call_in_wasm("test_nested_spawn", &[], wasm_method, &mut ext).unwrap();
+}
 
-// test_wasm_execution!(panic_in_spawned_instance_panics_on_joining_its_result);
-// fn panic_in_spawned_instance_panics_on_joining_its_result(wasm_method: WasmExecutionMethod) {
-// 	let mut ext = TestExternalities::default();
-// 	let mut ext = ext.ext();
+test_wasm_execution!(panic_in_spawned_instance_panics_on_joining_its_result);
+fn panic_in_spawned_instance_panics_on_joining_its_result(wasm_method: WasmExecutionMethod) {
+	let mut ext = TestExternalities::default();
+	let mut ext = ext.ext();
 
-// 	let error_result =
-// 		call_in_wasm("test_panic_in_spawned", &[], wasm_method, &mut ext).unwrap_err();
+	let error_result = call_in_wasm("test_panic_in_spawned", &[], wasm_method, &mut ext)
+		.unwrap_err()
+		.to_string();
 
-// 	assert!(error_result.to_string().contains("Spawned task"));
-// }
+	match wasm_method {
+		#[cfg(feature = "wasmedge")]
+		WasmExecutionMethod::CompiledWasmedge =>
+			assert!(error_result.contains(&HostFuncErrorWasmEdge::SpawnedTaskErr.to_string())),
+		_ => assert!(error_result.contains("Spawned task")),
+	};
+}
 
 test_wasm_execution!(memory_is_cleared_between_invocations);
 fn memory_is_cleared_between_invocations(wasm_method: WasmExecutionMethod) {

@@ -125,6 +125,11 @@ pub(crate) fn prepare_imports(
 							.downcast_ref::<String>()
 							.ok_or(HostFuncError::User(HostFuncErrorWasmEdge::Others as u32))?
 							.as_str();
+						if message.contains("Spawned task") {
+							return Err(HostFuncError::User(
+								HostFuncErrorWasmEdge::SpawnedTaskErr as u32,
+							))
+						}
 						if message.contains("Failed to allocate memory") {
 							return Err(HostFuncError::User(
 								HostFuncErrorWasmEdge::AllocateMemoryErr as u32,
@@ -220,7 +225,8 @@ pub(crate) fn prepare_imports(
 pub enum HostFuncErrorWasmEdge {
 	MissingHostFunc = 1,
 	AllocateMemoryErr = 2,
-	Others = 3,
+	SpawnedTaskErr = 3,
+	Others = 4,
 }
 
 impl fmt::Display for HostFuncErrorWasmEdge {
@@ -228,7 +234,8 @@ impl fmt::Display for HostFuncErrorWasmEdge {
 		match self {
 			HostFuncErrorWasmEdge::MissingHostFunc => write!(f, "1"),
 			HostFuncErrorWasmEdge::AllocateMemoryErr => write!(f, "2"),
-			HostFuncErrorWasmEdge::Others => write!(f, "3"),
+			HostFuncErrorWasmEdge::SpawnedTaskErr => write!(f, "3"),
+			HostFuncErrorWasmEdge::Others => write!(f, "4"),
 		}
 	}
 }
