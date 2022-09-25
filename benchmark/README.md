@@ -2,16 +2,18 @@
 
 ## Environment
 
-|      CPU      | Intel(R) Core(TM) i7-6700 CPU @ 3.40GHz |
+|     HW&SW     |                Contents                 |
 | :-----------: | :-------------------------------------: |
+|      CPU      | Intel(R) Core(TM) i7-6700 CPU @ 3.40GHz |
 |    Memory     |               8045752 KB                |
 | Linux version |            5.15.0-48-generic            |
 |      OS       |           Ubuntu 22.04.1 LTS            |
 
 ## Version
 
-| substrate-wasmedge | [commit 139e32](https://github.com/second-state/substrate-wasmedge/commit/139e32c9e7a2a8d6f71bd6a1a0577381b41148c9) |
+|       Items        |                           Version                            |
 | :----------------: | :----------------------------------------------------------: |
+| substrate-wasmedge | [commit 139e32](https://github.com/second-state/substrate-wasmedge/commit/139e32c9e7a2a8d6f71bd6a1a0577381b41148c9) |
 |     substrate      | [commit fb7792](https://github.com/paritytech/substrate/commit/fb779212ca6b59bd158d72deeab2502cb9670cca) |
 |      WasmEdge      | [commit 8a83a0](https://github.com/apepkuss/WasmEdge/commit/8a83a060f244219abfa80133c2b8f1354f18cecb) |
 |      wasmtime      |      [v1.0.0](https://docs.rs/wasmtime/1.0.0/wasmtime/)      |
@@ -69,18 +71,18 @@ fn test_dirty_plenty_memory(heap_base: u32, heap_pages: u32) {
 
 **wasmi(interpreted):** Use wasmi as the executor.
 
-**wasmedge: **Use wasmedge as the executor.
+**wasmedge:** Use wasmedge as the executor.
 
 * **wasmedge_instance_reuse:** Reuse the instance on each function call. That is, instead of re-instantiating, a previously saved snapshot is used to get a "clean" instance. It does not support precompiled.
 * **wasmedge_recreate_instance:** Recreate the instance from scratch on every instantiation. So it is really slow.
 * **wasmedge_recreate_instance_precompiled:** Use AOT compiler and `CompilerOptimizationLevel` is `1s`. There come a [bug](https://github.com/WasmEdge/WasmEdge/issues/1818) during the runing, probably is raised while `runtime` is manipulating the linear memory.
 
-**wasmtime: **Use wasmtime as the executor.
+**wasmtime:** Use wasmtime as the executor.
 
 * **wasmtime_instance_reuse:** Reuse the instance on each function call. Due to the new arising wasmtime [pool mechanism](https://docs.rs/wasmtime/latest/wasmtime/enum.PoolingAllocationStrategy.html), this strategy will become a legacy, and will be removed in the future. It is also important to note that it does not support precompiled.
 * **wasmtime_recreate_instance:** Recreate the instance from scratch on every instantiation.
 * **wasmtime_recreate_instance_cow:** Recreate the instance from scratch on every instantiation. Use [copy-on-write memory](https://docs.rs/wasmtime/latest/wasmtime/struct.Config.html#method.memory_init_cow) when possible.
-* **wasmtime_recreate_instance_cow_precompiled: ** Compared to the previous strategy, now the runtime is instantiated using a precompiled module.
+* **wasmtime_recreate_instance_cow_precompiled:** Compared to the previous strategy, now the runtime is instantiated using a precompiled module.
 * **wasmtime_pooling:** [Pool](https://docs.rs/wasmtime/latest/wasmtime/enum.PoolingAllocationStrategy.html) the instances to avoid initializing everything from scratch on each instantiation.
 * **wasmtime_pooling_cow:** [Pool](https://docs.rs/wasmtime/latest/wasmtime/enum.PoolingAllocationStrategy.html) the instances to avoid initializing everything from scratch on each instantiation. Use [copy-on-write memory](https://docs.rs/wasmtime/latest/wasmtime/struct.Config.html#method.memory_init_cow) when possible.
 * **wasmtime_pooling_cow_precompiled:** The runtime is instantiated using a precompiled module and everything works! This strategy should be the fastest.
