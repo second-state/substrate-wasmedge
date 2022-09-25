@@ -15,8 +15,7 @@ In this project, we use  [WasmEdge](https://github.com/WasmEdge/WasmEdge) as an 
 This project contains several folders:
 
 * `WasmEdge`: [WasmEdge](https://github.com/WasmEdge/WasmEdge) code included (version 0.10.1 (2022-07-28)). In order to use the latest code, we specify the [`wasmedge-sys`](https://github.com/second-state/substrate-wasmedge/tree/main/WasmEdge/bindings/rust/wasmedge-sys) crate on a local path in [`cargo.toml`](https://github.com/second-state/substrate-wasmedge/blob/main/substrate/client/executor/wasmedge/Cargo.toml).
-* `substrate`: [Substrate](https://github.com/paritytech/substrate) code included (version polkadot-v0.9.28). The path of the WasmEdge Executor is [`substrate/client/executor/wasmedge`](https://github.com/second-state/substrate-wasmedge/tree/main/substrate/client/executor/wasmedge).
-* `substrate-node-template`: a fresh FRAME-based [Substrate](https://github.com/paritytech/substrate) node, ready for hacking. The [substrate-node-template](https://github.com/substrate-developer-hub/substrate-node-template/releases/tag/polkadot-v0.9.28) includes everything we need to get started with a core set of features in [Substrate](https://github.com/paritytech/substrate). In this project, we use this demo to verify that our WasmEdge Executor is working as expected.
+* `substrate`: [Substrate](https://github.com/paritytech/substrate) code included ([version](https://github.com/paritytech/substrate/commit/fb779212ca6b59bd158d72deeab2502cb9670cca)). The path of the WasmEdge Executor is [`substrate/client/executor/wasmedge`](https://github.com/second-state/substrate-wasmedge/tree/main/substrate/client/executor/wasmedge).
 
 ## Build
 
@@ -34,7 +33,7 @@ This project contains several folders:
 Using [WasmEdge](https://github.com/WasmEdge/WasmEdge) as the Executor:
 
 ```bash
-$ cd substrate-node-template
+$ cd substrate/bin/node-template
 $ cargo run --release --bin node-template -- \
   --dev \
   --wasm-execution=compiledWasmedge \
@@ -58,7 +57,7 @@ If you see the following message, then you've run it successfully! Congratulatio
 By the way, you can also use [wasmtime](https://github.com/bytecodealliance/wasmtime) as the Executor in the following way:
 
 ```bash
-$ cd substrate-node-template
+$ cd substrate/bin/node-template
 $ cargo run --release --bin node-template -- --dev --wasm-execution=compiled
 ```
 
