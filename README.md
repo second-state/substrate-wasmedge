@@ -14,8 +14,8 @@ In this project, we use  [WasmEdge](https://github.com/WasmEdge/WasmEdge) as an 
 
 This project contains several folders:
 
-* `WasmEdge`: [WasmEdge](https://github.com/WasmEdge/WasmEdge) code included (version 0.10.1 (2022-07-28)). In order to use the latest code, we specify the [`wasmedge-sys`](https://github.com/second-state/substrate-wasmedge/tree/main/WasmEdge/bindings/rust/wasmedge-sys) crate on a local path in [`cargo.toml`](https://github.com/second-state/substrate-wasmedge/blob/main/substrate/client/executor/wasmedge/Cargo.toml).
-* `substrate`: [Substrate](https://github.com/paritytech/substrate) code included ([version](https://github.com/paritytech/substrate/commit/fb779212ca6b59bd158d72deeab2502cb9670cca)). The path of the WasmEdge Executor is [`substrate/client/executor/wasmedge`](https://github.com/second-state/substrate-wasmedge/tree/main/substrate/client/executor/wasmedge).
+* `WasmEdge`: [WasmEdge](https://github.com/WasmEdge/WasmEdge) code included ([version](https://github.com/WasmEdge/WasmEdge/commit/e6ed7a661809c90d850a54d74a036e02602cd56d)). In order to use the latest code, we specify the [`wasmedge-sys`](https://github.com/second-state/substrate-wasmedge/tree/main/WasmEdge/bindings/rust/wasmedge-sys) crate on a local path in [`cargo.toml`](https://github.com/second-state/substrate-wasmedge/blob/main/substrate/client/executor/wasmedge/Cargo.toml).
+* `substrate`: [Substrate](https://github.com/paritytech/substrate) code included ([version](https://github.com/paritytech/substrate/commit/37664fe5b3513eb996225f016eceaf74963b8133)). The path of the WasmEdge Executor is [`substrate/client/executor/wasmedge`](https://github.com/second-state/substrate-wasmedge/tree/main/substrate/client/executor/wasmedge).
 
 ## Build
 
