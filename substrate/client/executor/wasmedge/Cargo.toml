@@ -1,36 +1,40 @@
 [package]
-name = "sc-executor-wasmedge"
-version = "0.1.0"
 authors = ["EmisonLu <lzh1633856298@gmail.com>"]
-edition = "2021"
-license = "GPL-3.0-or-later WITH Classpath-exception-2.0"
-homepage = "https://substrate.io"
-repository = "https://github.com/paritytech/substrate/"
 description = "Defines a `WasmRuntime` that uses the Wasmedge to execute."
+edition = "2021"
+homepage = "https://substrate.io"
+license = "GPL-3.0-or-later WITH Classpath-exception-2.0"
+name = "sc-executor-wasmedge"
 readme = "README.md"
+repository = "https://github.com/paritytech/substrate/"
+version = "0.1.0"
 
 [package.metadata.docs.rs]
 targets = ["x86_64-unknown-linux-gnu"]
 
 [dependencies]
-libc = "0.2.121"
 cfg-if = "1.0"
+codec = {package = "parity-scale-codec", version = "3.0.0"}
+lazy_static = "1.4.0"
+libc = "0.2.121"
 log = "0.4.17"
 parity-wasm = "0.45"
+sc-allocator = {version = "4.1.0-dev", path = "../../allocator"}
+sc-executor-common = {version = "0.10.0-dev", path = "../common"}
+sp-runtime-interface = {version = "6.0.0", path = "../../../primitives/runtime-interface"}
+sp-sandbox = {version = "0.10.0-dev", path = "../../../primitives/sandbox"}
+sp-wasm-interface = {version = "6.0.0", features = ["wasmtime"], path = "../../../primitives/wasm-interface"}
 tempfile = "3.3.0"
-codec = { package = "parity-scale-codec", version = "3.0.0" }
-sc-allocator = { version = "4.1.0-dev", path = "../../allocator" }
-sc-executor-common = { version = "0.10.0-dev", path = "../common" }
-sp-runtime-interface = { version = "6.0.0", path = "../../../primitives/runtime-interface" }
-sp-sandbox = { version = "0.10.0-dev", path = "../../../primitives/sandbox" }
-sp-wasm-interface = { version = "6.0.0", features = ["wasmtime"], path = "../../../primitives/wasm-interface" }
-lazy_static = "1.4.0"
 
-wasmedge-sdk = { path = "../../../../WasmEdge/bindings/rust/wasmedge-sdk" }
-wasmedge-sys = { path = "../../../../WasmEdge/bindings/rust/wasmedge-sys" }
-wasmedge-types = { path = "../../../../WasmEdge/bindings/rust/wasmedge-types" }
+# wasmedge-sdk = { path = "../../../../WasmEdge/bindings/rust/wasmedge-sdk" }
+# wasmedge-sys = {path = "../../../../WasmEdge/bindings/rust/wasmedge-sys"}
+# wasmedge-types = {path = "../../../../WasmEdge/bindings/rust/wasmedge-types"}
+
+wasmedge-sdk = "0.6.0"
+wasmedge-sys = "0.11.0"
+wasmedge-types = "0.3.0"
 
 [dev-dependencies]
+sc-runtime-test = {version = "2.0.0", path = "../runtime-test"}
+sp-io = {version = "6.0.0", path = "../../../primitives/io"}
 wat = "1.0"
-sc-runtime-test = { version = "2.0.0", path = "../runtime-test" }
-sp-io = { version = "6.0.0", path = "../../../primitives/io" }

@@ -91,7 +91,7 @@ pub(crate) fn prepare_imports(
 
 			#[host_function]
 			fn function_static(
-				caller: &Caller,
+				caller: Caller,
 				inputs: Vec<WasmValue>,
 				host_wrapper: &mut HostWrapper,
 			) -> std::result::Result<Vec<WasmValue>, HostFuncError> {
@@ -187,7 +187,7 @@ pub(crate) fn prepare_imports(
 			for (name, (_, _)) in missing_func_imports {
 				#[host_function]
 				fn function_static(
-					_: &Caller,
+					_: Caller,
 					_: Vec<WasmValue>,
 				) -> std::result::Result<Vec<WasmValue>, HostFuncError> {
 					Err(HostFuncError::User(HostFuncErrorWasmEdge::MissingHostFunc as u32))
