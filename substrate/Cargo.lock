@@ -8315,8 +8315,6 @@ dependencies = [
  "sp-wasm-interface",
  "tempfile",
  "wasmedge-sdk",
- "wasmedge-sys",
- "wasmedge-types",
  "wat",
 ]
 

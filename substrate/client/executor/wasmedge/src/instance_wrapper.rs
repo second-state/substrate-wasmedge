@@ -5,10 +5,9 @@ use sc_executor_common::{
 };
 use sp_wasm_interface::{Pointer, Value, WordSize};
 use wasmedge_sdk::{
-	types::Val, Executor, Func, FuncRef, ImportObject, Instance, Memory, Module, Store,
+	types::Val, Executor, Func, FuncRef, ImportObject, Instance, Memory, Module, Store, ValType,
+	WasmValue,
 };
-use wasmedge_sys::types::WasmValue;
-use wasmedge_types::ValType;
 
 pub struct InstanceWrapper {
 	store: Store,

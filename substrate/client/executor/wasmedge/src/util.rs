@@ -3,9 +3,7 @@ use sc_executor_common::{
 	util::checked_range,
 };
 use sp_wasm_interface::{Pointer, Value, ValueType};
-use wasmedge_sdk::{types::Val, Memory};
-use wasmedge_sys::WasmValue;
-use wasmedge_types::ValType;
+use wasmedge_sdk::{types::Val, Memory, ValType, WasmValue};
 
 /// Converts a [`wasmedge_sdk::types::Val`] into a substrate runtime interface [`Value`].
 ///

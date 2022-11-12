@@ -10,8 +10,7 @@ use sc_executor_common::{
 use sp_sandbox::env as sandbox_env;
 use sp_wasm_interface::{FunctionContext, MemoryId, Pointer, Sandbox, WordSize};
 use std::sync::Arc;
-use wasmedge_sdk::{types::Val, Executor, FuncRef, Memory, Table};
-use wasmedge_sys::types::WasmValue;
+use wasmedge_sdk::{types::Val, Executor, FuncRef, Memory, Table, WasmValue};
 
 // The sandbox store is inside of a Option<Box<..>>> so that we can temporarily borrow it.
 struct SandboxStore(Option<Box<sandbox::Store<Arc<FuncRef>>>>);

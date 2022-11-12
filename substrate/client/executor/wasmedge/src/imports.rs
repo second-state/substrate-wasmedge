@@ -10,9 +10,10 @@ use std::{
 	fmt,
 	sync::{Arc, Mutex},
 };
-use wasmedge_sdk::{host_function, Caller, ImportObjectBuilder, Module};
-use wasmedge_sys::types::WasmValue;
-use wasmedge_types::{error::HostFuncError, ExternalInstanceType, FuncType};
+use wasmedge_sdk::{
+	error::HostFuncError, host_function, Caller, ExternalInstanceType, FuncType,
+	ImportObjectBuilder, Module, WasmValue,
+};
 
 lazy_static::lazy_static! {
 	// Stores the data that need to be imported into each host function.
