@@ -10,9 +10,10 @@ use std::{
 	fmt,
 	sync::{Arc, Mutex},
 };
-use wasmedge_sdk::{host_function, Caller, ImportObjectBuilder, Module};
-use wasmedge_sys::types::WasmValue;
-use wasmedge_types::{error::HostFuncError, ExternalInstanceType, FuncType};
+use wasmedge_sdk::{
+	error::HostFuncError, host_function, Caller, ExternalInstanceType, FuncType,
+	ImportObjectBuilder, Module, WasmValue,
+};
 
 lazy_static::lazy_static! {
 	// Stores the data that need to be imported into each host function.
@@ -91,7 +92,7 @@ pub(crate) fn prepare_imports(
 
 			#[host_function]
 			fn function_static(
-				caller: &Caller,
+				caller: Caller,
 				inputs: Vec<WasmValue>,
 				host_wrapper: &mut HostWrapper,
 			) -> std::result::Result<Vec<WasmValue>, HostFuncError> {
@@ -187,7 +188,7 @@ pub(crate) fn prepare_imports(
 			for (name, (_, _)) in missing_func_imports {
 				#[host_function]
 				fn function_static(
-					_: &Caller,
+					_: Caller,
 					_: Vec<WasmValue>,
 				) -> std::result::Result<Vec<WasmValue>, HostFuncError> {
 					Err(HostFuncError::User(HostFuncErrorWasmEdge::MissingHostFunc as u32))

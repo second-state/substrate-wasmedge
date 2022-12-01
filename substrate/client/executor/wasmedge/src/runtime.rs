@@ -15,9 +15,8 @@ use std::{
 };
 use wasmedge_sdk::{
 	config::{CommonConfigOptions, CompilerConfigOptions, ConfigBuilder, RuntimeConfigOptions},
-	Compiler, Global, Module,
+	Compiler, CompilerOptimizationLevel, CompilerOutputFormat, Global, Module,
 };
-use wasmedge_types::{CompilerOptimizationLevel, CompilerOutputFormat};
 
 pub struct Config {
 	/// The WebAssembly standard requires all imports of an instantiated module to be resolved,
